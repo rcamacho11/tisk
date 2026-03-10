@@ -2,26 +2,27 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    KeyboardAvoidingView,
-    Platform,
-    ScrollView,
-    StyleSheet,
-    TextInput,
-    TouchableOpacity,
+  ActivityIndicator,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity
 } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { setAuthToken, signIn, signUp } from '@/utils/api';
+import { useAuth } from '@/src/hooks/useAuth';
 
 export default function LoginScreen() {
   const router = useRouter();
+  const { login, signup, isLoading, error } = useAuth();
   const colorScheme = useColorScheme();
-  const [isLogin, setIsLogin] = useState(true);
-  const [loading, setLoading] = useState(false);
+  const [isLoginMode, setIsLoginMode] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
@@ -48,19 +49,12 @@ export default function LoginScreen() {
       return;
     }
 
-    setLoading(true);
-    const result = await signIn(formData.email, formData.password);
-    setLoading(false);
-
-    if (!result.success) {
-      Alert.alert('Login Failed', result.error || 'Unable to sign in');
-      return;
+    const success = await login(formData.email, formData.password);
+    if (success) {
+      router.replace('/(tabs)');
+    } else {
+      Alert.alert('Login Failed', error || 'Unable to sign in');
     }
-
-    if (result.data?.session) {
-      setAuthToken(result.data.session.access_token);
-    }
-    router.replace('/(tabs)');
   };
 
   const handleSignup = async () => {
@@ -89,20 +83,22 @@ export default function LoginScreen() {
       return;
     }
 
-    setLoading(true);
-    const result = await signUp(formData.email, formData.password, formData.name);
-    setLoading(false);
-
-    if (!result.success) {
-      Alert.alert('Signup Failed', result.error || 'Unable to create account');
-      return;
+    const success = await signup(formData.email, formData.password, formData.name);
+    if (success) {
+      Alert.alert('Success', 'Account created! Logging you in...');
+      router.replace('/(tabs)');
+    } else {
+      Alert.alert('Signup Failed', error || 'Unable to create account');
     }
+  };
 
-    if (result.data?.session) {
-      setAuthToken(result.data.session.access_token);
-    }
-    Alert.alert('Success', 'Account created! Logging you in...');
-    router.replace('/(tabs)');
+  const resetForm = () => {
+    setFormData({
+      email: '',
+      password: '',
+      confirmPassword: '',
+      name: '',
+    });
   };
 
   return (
@@ -128,11 +124,11 @@ export default function LoginScreen() {
         {/* Login/Signup Form */}
         <ThemedView style={styles.formSection}>
           <ThemedText type="title" style={styles.formTitle}>
-            {isLogin ? 'Welcome Back' : 'Create Account'}
+            {isLoginMode ? 'Welcome Back' : 'Create Account'}
           </ThemedText>
 
           {/* Name Field (Signup Only) */}
-          {!isLogin && (
+          {!isLoginMode && (
             <ThemedView>
               <ThemedText style={styles.label}>Full Name</ThemedText>
               <ThemedView style={styles.inputContainer}>
@@ -148,7 +144,7 @@ export default function LoginScreen() {
                   onChangeText={(text) =>
                     setFormData({ ...formData, name: text })
                   }
-                  editable={!loading}
+                  editable={!isLoading}
                 />
               </ThemedView>
             </ThemedView>
@@ -172,7 +168,7 @@ export default function LoginScreen() {
                 }
                 keyboardType="email-address"
                 autoCapitalize="none"
-                editable={!loading}
+                editable={!isLoading}
               />
             </ThemedView>
           </ThemedView>
@@ -194,7 +190,7 @@ export default function LoginScreen() {
                   setFormData({ ...formData, password: text })
                 }
                 secureTextEntry={!showPassword}
-                editable={!loading}
+                editable={!isLoading}
               />
               <TouchableOpacity
                 onPress={() => setShowPassword(!showPassword)}>
@@ -208,7 +204,7 @@ export default function LoginScreen() {
           </ThemedView>
 
           {/* Confirm Password Field (Signup Only) */}
-          {!isLogin && (
+          {!isLoginMode && (
             <ThemedView>
               <ThemedText style={styles.label}>Confirm Password</ThemedText>
               <ThemedView style={styles.inputContainer}>
@@ -225,7 +221,7 @@ export default function LoginScreen() {
                     setFormData({ ...formData, confirmPassword: text })
                   }
                   secureTextEntry={!showConfirmPassword}
-                  editable={!loading}
+                  editable={!isLoading}
                 />
                 <TouchableOpacity
                   onPress={() => setShowConfirmPassword(!showConfirmPassword)}>
@@ -239,29 +235,34 @@ export default function LoginScreen() {
             </ThemedView>
           )}
 
+          {/* Error Message */}
+          {error && (
+            <Text style={styles.errorText}>{error}</Text>
+          )}
+
           {/* Login Button */}
           <TouchableOpacity
-            style={[styles.submitButton, loading && { opacity: 0.7 }]}
-            onPress={isLogin ? handleLogin : handleSignup}
-            disabled={loading}>
-            {loading ? (
+            style={[styles.submitButton, isLoading && { opacity: 0.7 }]}
+            onPress={isLoginMode ? handleLogin : handleSignup}
+            disabled={isLoading}>
+            {isLoading ? (
               <ActivityIndicator color="#fff" />
             ) : (
               <>
                 <Ionicons
-                  name={isLogin ? 'log-in' : 'person-add'}
+                  name={isLoginMode ? 'log-in' : 'person-add'}
                   size={20}
                   color="#fff"
                 />
                 <ThemedText style={styles.submitButtonText}>
-                  {isLogin ? 'Sign In' : 'Create Account'}
+                  {isLoginMode ? 'Sign In' : 'Create Account'}
                 </ThemedText>
               </>
             )}
           </TouchableOpacity>
 
           {/* Forgot Password Link (Login Only) */}
-          {isLogin && (
+          {isLoginMode && (
             <TouchableOpacity style={styles.forgotButton}>
               <ThemedText style={styles.forgotButtonText}>
                 Forgot Password?
@@ -272,40 +273,16 @@ export default function LoginScreen() {
           {/* Toggle Between Login and Signup */}
           <ThemedView style={styles.toggleContainer}>
             <ThemedText style={styles.toggleText}>
-              {isLogin ? "Don't have an account? " : 'Already have an account? '}
+              {isLoginMode ? "Don't have an account? " : 'Already have an account? '}
             </ThemedText>
             <TouchableOpacity
               onPress={() => {
-                setIsLogin(!isLogin);
-                setFormData({
-                  email: '',
-                  password: '',
-                  confirmPassword: '',
-                  name: '',
-                });
+                setIsLoginMode(!isLoginMode);
+                resetForm();
               }}>
               <ThemedText style={styles.toggleLink}>
-                {isLogin ? 'Sign Up' : 'Sign In'}
+                {isLoginMode ? 'Sign Up' : 'Sign In'}
               </ThemedText>
-            </TouchableOpacity>
-          </ThemedView>
-
-          {/* Social Login */}
-          <ThemedView style={styles.divider}>
-            <ThemedView style={styles.dividerLine} />
-            <ThemedText style={styles.dividerText}>or continue with</ThemedText>
-            <ThemedView style={styles.dividerLine} />
-          </ThemedView>
-
-          <ThemedView style={styles.socialContainer}>
-            <TouchableOpacity style={styles.socialButton}>
-              <Ionicons name="logo-apple" size={24} color="#000" />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.socialButton}>
-              <Ionicons name="logo-facebook" size={24} color="#1976d2" />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.socialButton}>
-              <Ionicons name="mail" size={24} color="#ff6b6b" />
             </TouchableOpacity>
           </ThemedView>
         </ThemedView>
@@ -435,5 +412,11 @@ const styles = StyleSheet.create({
     borderColor: '#ddd',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  errorText: {
+    color: '#FF3B30',
+    fontSize: 14,
+    marginTop: -8,
+    marginBottom: 8,
   },
 });

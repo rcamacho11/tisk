@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -7,80 +7,69 @@ import {
   ScrollView,
   StyleSheet,
   TextInput,
-  TouchableOpacity
+  TouchableOpacity,
+  View,
 } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { createTask, deleteTask, getTasks, updateTask } from '@/utils/api';
+import { useApi, useMutation } from '@/src/hooks/useApi';
+import { taskService } from '@/src/services/taskService';
+import { CreateTaskInput, Task, UpdateTaskInput } from '@/src/types/api';
 
 type Priority = 'low' | 'medium' | 'high';
-
-interface Subtask {
-  id: string;
-  title: string;
-  completed: boolean;
-}
-
-interface Task {
-  id: string;
-  title: string;
-  description: string;
-  completed: boolean;
-  priority: Priority;
-  dueDate: string | null;
-  category: string;
-  subtasks: Subtask[];
-  createdAt: number;
-}
 
 const CATEGORIES = ['Work', 'Personal', 'Shopping', 'Health', 'Finance'];
 const PRIORITIES: Priority[] = ['low', 'medium', 'high'];
 
 export default function HomeScreen() {
   const colorScheme = useColorScheme();
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [input, setInput] = useState('');
-  const [sortBy, setSortBy] = useState<'date' | 'priority' | 'category'>('date');
-  const [filterBy, setFilterBy] = useState<'all' | 'active' | 'completed'>('all');
+  const { data: tasks, loading, refetch: refetchTasks } = useApi(() =>
+    taskService.getTasks()
+  );
+
+  const { mutate: createTask } = useMutation(
+    (data: CreateTaskInput) => taskService.createTask(data)
+  );
+
+  const { mutate: updateTask } = useMutation(
+    (data: { id: string; updates: UpdateTaskInput }) =>
+      taskService.updateTask(data.id, data.updates)
+  );
+
+  const { mutate: deleteTask } = useMutation(
+    (id: string) => taskService.deleteTask(id)
+  );
+
+  const { mutate: completeTask } = useMutation(
+    (id: string) => taskService.completeTask(id)
+  );
+
+  const { mutate: uncompleteTask } = useMutation(
+    (id: string) => taskService.uncompleteTask(id)
+  );
+
   const [showModal, setShowModal] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
+  const [sortBy, setSortBy] = useState<'date' | 'priority' | 'category'>('date');
+  const [filterBy, setFilterBy] = useState<'all' | 'active' | 'completed'>('all');
+
+  // Modal form state
   const [modalInput, setModalInput] = useState('');
   const [modalDescription, setModalDescription] = useState('');
   const [modalPriority, setModalPriority] = useState<Priority>('medium');
   const [modalCategory, setModalCategory] = useState('Personal');
   const [modalDueDate, setModalDueDate] = useState('');
-  const [subtaskInput, setSubtaskInput] = useState('');
-
-  useEffect(() => {
-    loadTasks();
-  }, []);
-
-  const loadTasks = async () => {
-    setLoading(true);
-    const result = await getTasks();
-    setLoading(false);
-
-    if (!result.success) {
-      Alert.alert('Error', 'Failed to load tasks');
-      return;
-    }
-
-    if (result.data?.tasks) {
-      setTasks(result.data.tasks);
-    }
-  };
 
   const handleOpenModal = (task?: Task) => {
     if (task) {
       setEditingTask(task);
       setModalInput(task.title);
-      setModalDescription(task.description);
-      setModalPriority(task.priority);
-      setModalCategory(task.category);
+      setModalDescription(task.description || '');
+      setModalPriority((task.priority as Priority) || 'medium');
+      setModalCategory(task.category || 'Personal');
       setModalDueDate(task.dueDate || '');
     } else {
       setEditingTask(null);
@@ -90,7 +79,6 @@ export default function HomeScreen() {
       setModalCategory('Personal');
       setModalDueDate('');
     }
-    setSubtaskInput('');
     setShowModal(true);
   };
 
@@ -101,147 +89,80 @@ export default function HomeScreen() {
     }
 
     if (editingTask) {
-      const result = await updateTask(editingTask.id, {
-        title: modalInput.trim(),
-        description: modalDescription.trim(),
-        priority: modalPriority,
-        category: modalCategory,
-        dueDate: modalDueDate || null,
+      const { error } = await updateTask({
+        id: editingTask.id,
+        updates: {
+          title: modalInput.trim(),
+          description: modalDescription.trim(),
+          priority: modalPriority,
+          category: modalCategory,
+          dueDate: modalDueDate || undefined,
+        },
       });
 
-      if (!result.success) {
-        Alert.alert('Error', 'Failed to update task');
+      if (error) {
+        Alert.alert('Error', error.message);
         return;
       }
-
-      setTasks(
-        tasks.map((t) =>
-          t.id === editingTask.id
-            ? {
-                ...t,
-                title: modalInput.trim(),
-                description: modalDescription.trim(),
-                priority: modalPriority,
-                category: modalCategory,
-                dueDate: modalDueDate || null,
-              }
-            : t
-        )
-      );
+      Alert.alert('Success', 'Task updated');
     } else {
-      const result = await createTask({
+      const { error } = await createTask({
         title: modalInput.trim(),
         description: modalDescription.trim(),
         priority: modalPriority,
-        dueDate: modalDueDate || null,
         category: modalCategory,
+        dueDate: modalDueDate || undefined,
       });
 
-      if (!result.success) {
-        Alert.alert('Error', 'Failed to create task');
+      if (error) {
+        Alert.alert('Error', error.message);
         return;
       }
-
-      const newTask: Task = {
-        id: result.data?.id || Date.now().toString(),
-        title: modalInput.trim(),
-        description: modalDescription.trim(),
-        completed: false,
-        priority: modalPriority,
-        dueDate: modalDueDate || null,
-        category: modalCategory,
-        subtasks: [],
-        createdAt: Date.now(),
-      };
-      setTasks([newTask, ...tasks]);
+      Alert.alert('Success', 'Task created');
     }
+
     setShowModal(false);
+    refetchTasks();
   };
 
-  const addSubtask = (taskId: string) => {
-    if (!subtaskInput.trim()) return;
-
-    setTasks(
-      tasks.map((t) =>
-        t.id === taskId
-          ? {
-              ...t,
-              subtasks: [
-                ...t.subtasks,
-                {
-                  id: Date.now().toString(),
-                  title: subtaskInput.trim(),
-                  completed: false,
-                },
-              ],
-            }
-          : t
-      )
-    );
-    setSubtaskInput('');
-  };
-
-  const toggleSubtask = (taskId: string, subtaskId: string) => {
-    setTasks(
-      tasks.map((t) =>
-        t.id === taskId
-          ? {
-              ...t,
-              subtasks: t.subtasks.map((st) =>
-                st.id === subtaskId ? { ...st, completed: !st.completed } : st
-              ),
-            }
-          : t
-      )
-    );
-  };
-
-  const deleteSubtask = (taskId: string, subtaskId: string) => {
-    setTasks(
-      tasks.map((t) =>
-        t.id === taskId
-          ? {
-              ...t,
-              subtasks: t.subtasks.filter((st) => st.id !== subtaskId),
-            }
-          : t
-      )
-    );
-  };
-
-  const toggleTask = async (id: string) => {
-    const task = tasks.find((t) => t.id === id);
-    if (!task) return;
-
-    const result = await updateTask(id, {
-      completed: !task.completed,
-    });
-
-    if (!result.success) {
-      Alert.alert('Error', 'Failed to update task');
-      return;
+  const handleToggleTask = async (id: string, completed: boolean) => {
+    if (completed) {
+      const { error } = await uncompleteTask(id);
+      if (error) {
+        Alert.alert('Error', error.message);
+        return;
+      }
+    } else {
+      const { error } = await completeTask(id);
+      if (error) {
+        Alert.alert('Error', error.message);
+        return;
+      }
     }
-
-    setTasks(
-      tasks.map((t) =>
-        t.id === id ? { ...t, completed: !t.completed } : t
-      )
-    );
+    refetchTasks();
   };
 
   const handleDeleteTask = async (id: string) => {
-    const result = await deleteTask(id);
-
-    if (!result.success) {
-      Alert.alert('Error', 'Failed to delete task');
-      return;
-    }
-
-    setTasks(tasks.filter((task) => task.id !== id));
+    Alert.alert('Delete Task', 'Are you sure?', [
+      { text: 'Cancel', onPress: () => {} },
+      {
+        text: 'Delete',
+        onPress: async () => {
+          const { error } = await deleteTask(id);
+          if (error) {
+            Alert.alert('Error', error.message);
+            return;
+          }
+          refetchTasks();
+        },
+      },
+    ]);
   };
 
-  const getFilteredTasks = () => {
-    let filtered = tasks;
+  const getFilteredAndSortedTasks = () => {
+    if (!tasks) return [];
+
+    let filtered = [...tasks];
 
     if (filterBy === 'active') {
       filtered = filtered.filter((t) => !t.completed);
@@ -251,17 +172,25 @@ export default function HomeScreen() {
 
     if (sortBy === 'priority') {
       const priorityOrder = { high: 0, medium: 1, low: 2 };
-      filtered.sort((a, b) => priorityOrder[a.priority] - priorityOrder[b.priority]);
+      filtered.sort(
+        (a, b) =>
+          priorityOrder[(a.priority as Priority) || 'medium'] -
+          priorityOrder[(b.priority as Priority) || 'medium']
+      );
     } else if (sortBy === 'category') {
-      filtered.sort((a, b) => a.category.localeCompare(b.category));
+      filtered.sort((a, b) => (a.category || '').localeCompare(b.category || ''));
     } else {
-      filtered.sort((a, b) => (b.dueDate || '').localeCompare(a.dueDate || ''));
+      filtered.sort((a, b) => {
+        const dateA = new Date(a.dueDate || 0).getTime();
+        const dateB = new Date(b.dueDate || 0).getTime();
+        return dateB - dateA;
+      });
     }
 
     return filtered;
   };
 
-  const getPriorityColor = (priority: Priority) => {
+  const getPriorityColor = (priority?: string) => {
     switch (priority) {
       case 'high':
         return '#ff6b6b';
@@ -269,64 +198,38 @@ export default function HomeScreen() {
         return '#ffa500';
       case 'low':
         return '#4CAF50';
+      default:
+        return '#888';
     }
   };
 
-  const isOverdue = (dueDate: string | null) => {
+  const isOverdue = (dueDate?: string | null) => {
     if (!dueDate) return false;
     return new Date(dueDate) < new Date();
   };
 
-  const completedCount = tasks.filter((t) => t.completed).length;
-  const activeTasks = tasks.filter((t) => !t.completed);
-  const filteredTasks = getFilteredTasks();
+  const filteredTasks = getFilteredAndSortedTasks();
+  const completedCount = tasks?.filter((t) => t.completed).length || 0;
+  const totalCount = tasks?.length || 0;
+
+  if (loading) {
+    return (
+      <ThemedView style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+        <ActivityIndicator size="large" color="#007AFF" />
+      </ThemedView>
+    );
+  }
 
   return (
     <ThemedView style={styles.container}>
       <ThemedView style={styles.header}>
         <ThemedText type="title">My Tasks</ThemedText>
         <ThemedText style={styles.statsText}>
-          {completedCount} of {tasks.length} completed
+          {completedCount} of {totalCount} completed
         </ThemedText>
       </ThemedView>
 
-      {/* Quick Add Input */}
-      <ThemedView style={styles.inputContainer}>
-        <TextInput
-          style={[
-            styles.input,
-            { color: colorScheme === 'dark' ? '#fff' : '#000' },
-          ]}
-          placeholder="Quick add task..."
-          placeholderTextColor={colorScheme === 'dark' ? '#888' : '#ccc'}
-          value={input}
-          onChangeText={setInput}
-          onSubmitEditing={() => {
-            if (input.trim()) {
-              const newTask: Task = {
-                id: Date.now().toString(),
-                title: input.trim(),
-                description: '',
-                completed: false,
-                priority: 'medium',
-                dueDate: null,
-                category: 'Personal',
-                subtasks: [],
-                createdAt: Date.now(),
-              };
-              setTasks([newTask, ...tasks]);
-              setInput('');
-            }
-          }}
-        />
-        <TouchableOpacity
-          style={styles.addButton}
-          onPress={() => handleOpenModal()}>
-          <Ionicons name="add" size={24} color="#fff" />
-        </TouchableOpacity>
-      </ThemedView>
-
-      {/* Filter & Sort Buttons */}
+      {/* Filter & Sort Controls */}
       <ThemedView style={styles.controlsContainer}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
           {(['all', 'active', 'completed'] as const).map((filter) => (
@@ -336,12 +239,14 @@ export default function HomeScreen() {
                 styles.filterButton,
                 filterBy === filter && styles.filterButtonActive,
               ]}
-              onPress={() => setFilterBy(filter)}>
+              onPress={() => setFilterBy(filter)}
+            >
               <ThemedText
                 style={[
                   styles.filterButtonText,
                   filterBy === filter && styles.filterButtonTextActive,
-                ]}>
+                ]}
+              >
                 {filter.charAt(0).toUpperCase() + filter.slice(1)}
               </ThemedText>
             </TouchableOpacity>
@@ -356,7 +261,8 @@ export default function HomeScreen() {
                 styles.sortButton,
                 sortBy === sort && styles.sortButtonActive,
               ]}
-              onPress={() => setSortBy(sort)}>
+              onPress={() => setSortBy(sort)}
+            >
               <Ionicons
                 name={sortBy === sort ? 'filter' : 'filter-outline'}
                 size={16}
@@ -366,7 +272,8 @@ export default function HomeScreen() {
                 style={[
                   styles.sortButtonText,
                   sortBy === sort && styles.sortButtonTextActive,
-                ]}>
+                ]}
+              >
                 {sort.charAt(0).toUpperCase() + sort.slice(1)}
               </ThemedText>
             </TouchableOpacity>
@@ -374,13 +281,13 @@ export default function HomeScreen() {
         </ScrollView>
       </ThemedView>
 
+      {/* Add Task Button */}
+      <TouchableOpacity style={styles.addButton} onPress={() => handleOpenModal()}>
+        <Ionicons name="add" size={24} color="#fff" />
+      </TouchableOpacity>
+
       {/* Tasks List */}
-      {loading ? (
-        <ThemedView style={[styles.taskList, { justifyContent: 'center', alignItems: 'center' }]}>
-          <ActivityIndicator size="large" color="#007AFF" />
-        </ThemedView>
-      ) : (
-        <ScrollView style={styles.taskList} showsVerticalScrollIndicator={false}>
+      <ScrollView style={styles.taskList} showsVerticalScrollIndicator={false}>
         {filteredTasks.length === 0 ? (
           <ThemedView style={styles.emptyState}>
             <Ionicons
@@ -389,30 +296,24 @@ export default function HomeScreen() {
               color={colorScheme === 'dark' ? '#666' : '#ccc'}
             />
             <ThemedText style={styles.emptyText}>
-              {filterBy === 'completed'
-                ? 'No completed tasks yet'
-                : 'No tasks yet. Add one to get started!'}
+              {filterBy === 'completed' ? 'No completed tasks yet' : 'No tasks yet. Add one to get started!'}
             </ThemedText>
           </ThemedView>
         ) : (
           filteredTasks.map((task) => (
-            <ThemedView key={task.id}>
+            <View key={task.id}>
               <TouchableOpacity
                 style={[
                   styles.taskItem,
                   task.completed && styles.taskItemCompleted,
-                  isOverdue(task.dueDate) &&
-                    !task.completed &&
-                    styles.taskItemOverdue,
+                  isOverdue(task.dueDate) && !task.completed && styles.taskItemOverdue,
                 ]}
-                onPress={() =>
-                  setExpandedTaskId(
-                    expandedTaskId === task.id ? null : task.id
-                  )
-                }>
+                onPress={() => setExpandedTaskId(expandedTaskId === task.id ? null : task.id)}
+              >
                 <TouchableOpacity
                   style={styles.checkbox}
-                  onPress={() => toggleTask(task.id)}>
+                  onPress={() => handleToggleTask(task.id, task.completed)}
+                >
                   <Ionicons
                     name={task.completed ? 'checkbox' : 'checkbox-outline'}
                     size={24}
@@ -425,13 +326,12 @@ export default function HomeScreen() {
                     style={[
                       styles.taskText,
                       task.completed && styles.completedTaskText,
-                    ]}>
+                    ]}
+                  >
                     {task.title}
                   </ThemedText>
                   {task.description && (
-                    <ThemedText style={styles.taskDescription}>
-                      {task.description}
-                    </ThemedText>
+                    <ThemedText style={styles.taskDescription}>{task.description}</ThemedText>
                   )}
                   <ThemedView style={styles.taskMetaContainer}>
                     {task.dueDate && (
@@ -439,11 +339,7 @@ export default function HomeScreen() {
                         <Ionicons
                           name="calendar"
                           size={12}
-                          color={
-                            isOverdue(task.dueDate) && !task.completed
-                              ? '#ff6b6b'
-                              : '#888'
-                          }
+                          color={isOverdue(task.dueDate) && !task.completed ? '#ff6b6b' : '#888'}
                         />
                         <ThemedText
                           style={[
@@ -451,7 +347,8 @@ export default function HomeScreen() {
                             isOverdue(task.dueDate) &&
                               !task.completed &&
                               styles.overdueText,
-                          ]}>
+                          ]}
+                        >
                           {task.dueDate}
                         </ThemedText>
                       </ThemedView>
@@ -460,13 +357,15 @@ export default function HomeScreen() {
                       style={[
                         styles.categoryTag,
                         { borderColor: getPriorityColor(task.priority) },
-                      ]}>
+                      ]}
+                    >
                       <ThemedText
                         style={[
                           styles.categoryTagText,
                           { color: getPriorityColor(task.priority) },
-                        ]}>
-                        {task.priority.charAt(0).toUpperCase()}
+                        ]}
+                      >
+                        {(task.priority as string)?.charAt(0).toUpperCase()}
                       </ThemedText>
                     </ThemedView>
                     <ThemedView style={styles.categoryBadge}>
@@ -477,9 +376,7 @@ export default function HomeScreen() {
                   </ThemedView>
                 </ThemedView>
 
-                <TouchableOpacity
-                  onPress={() => handleOpenModal(task)}
-                  style={styles.editButton}>
+                <TouchableOpacity onPress={() => handleOpenModal(task)} style={styles.editButton}>
                   <Ionicons name="pencil" size={18} color="#4CAF50" />
                 </TouchableOpacity>
               </TouchableOpacity>
@@ -487,99 +384,26 @@ export default function HomeScreen() {
               {/* Expanded Task Details */}
               {expandedTaskId === task.id && (
                 <ThemedView style={styles.expandedContent}>
-                  {/* Subtasks */}
-                  {task.subtasks.length > 0 && (
-                    <ThemedView style={styles.subtaskSection}>
-                      <ThemedText style={styles.subtaskTitle}>
-                        Subtasks ({task.subtasks.filter((s) => s.completed).length}/
-                        {task.subtasks.length})
-                      </ThemedText>
-                      {task.subtasks.map((subtask) => (
-                        <ThemedView key={subtask.id} style={styles.subtaskItem}>
-                          <TouchableOpacity
-                            onPress={() => toggleSubtask(task.id, subtask.id)}>
-                            <Ionicons
-                              name={
-                                subtask.completed
-                                  ? 'checkbox'
-                                  : 'checkbox-outline'
-                              }
-                              size={20}
-                              color={subtask.completed ? '#4CAF50' : '#888'}
-                            />
-                          </TouchableOpacity>
-                          <ThemedText
-                            style={[
-                              styles.subtaskText,
-                              subtask.completed && styles.completedTaskText,
-                            ]}>
-                            {subtask.title}
-                          </ThemedText>
-                          <TouchableOpacity
-                            onPress={() =>
-                              deleteSubtask(task.id, subtask.id)
-                            }>
-                            <Ionicons
-                              name="trash-outline"
-                              size={16}
-                              color="#ff6b6b"
-                            />
-                          </TouchableOpacity>
-                        </ThemedView>
-                      ))}
-                    </ThemedView>
-                  )}
-
-                  {/* Add Subtask */}
-                  {!task.completed && (
-                    <ThemedView style={styles.addSubtaskContainer}>
-                      <TextInput
-                        style={[
-                          styles.subtaskInput,
-                          {
-                            color: colorScheme === 'dark' ? '#fff' : '#000',
-                          },
-                        ]}
-                        placeholder="Add subtask..."
-                        placeholderTextColor={
-                          colorScheme === 'dark' ? '#888' : '#ccc'
-                        }
-                        value={subtaskInput}
-                        onChangeText={setSubtaskInput}
-                      />
-                      <TouchableOpacity
-                        onPress={() => addSubtask(task.id)}
-                        style={styles.addSubtaskBtn}>
-                        <Ionicons name="add-circle" size={24} color="#4CAF50" />
-                      </TouchableOpacity>
-                    </ThemedView>
-                  )}
-
-                  {/* Delete Task */}
                   <TouchableOpacity
                     onPress={() => handleDeleteTask(task.id)}
-                    style={styles.deleteTaskButton}>
+                    style={styles.deleteTaskButton}
+                  >
                     <Ionicons name="trash" size={18} color="#fff" />
-                    <ThemedText style={styles.deleteTaskButtonText}>
-                      Delete Task
-                    </ThemedText>
+                    <ThemedText style={styles.deleteTaskButtonText}>Delete Task</ThemedText>
                   </TouchableOpacity>
                 </ThemedView>
               )}
-            </ThemedView>
+            </View>
           ))
         )}
       </ScrollView>
-      )}
 
       {/* Add/Edit Task Modal */}
       <Modal visible={showModal} animationType="slide" transparent>
         <ThemedView style={styles.modalOverlay}>
           <ThemedView style={styles.modalContent}>
             <ThemedView style={styles.modalHeader}>
-              <ThemedText type="title">
-                {editingTask ? 'Edit Task' : 'New Task'}
-              </ThemedText>
+              <ThemedText type="title">{editingTask ? 'Edit Task' : 'New Task'}</ThemedText>
               <TouchableOpacity onPress={() => setShowModal(false)}>
                 <Ionicons name="close" size={28} color="#888" />
               </TouchableOpacity>
