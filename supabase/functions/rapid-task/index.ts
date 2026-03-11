@@ -322,20 +322,12 @@ Deno.serve(async (req) => {
       return json({ success: true, data: data?.[0] })
     }
 
-    return json({ error: "Not found" }, 404)
-  } catch (err) {
-    return json(
-      { error: err instanceof Error ? err.message : "Unknown error" },
-      500
-    )
-  }
-})
+    /* =========================
+       LOCATION ROUTES
+    ========================= */
 
-    // ============================================
-    // LOCATION ROUTES
-    // ============================================
     if (endpoint === '/location' && req.method === 'POST') {
-      const { latitude, longitude, address, accuracy } = await req.json()
+      const { latitude, longitude, address, accuracy } = await parseBody(req)
 
       const { data, error } = await supabase
         .from('user_locations')
@@ -349,27 +341,16 @@ Deno.serve(async (req) => {
         }, { onConflict: 'user_id' })
         .select()
 
-      if (error) {
-        return new Response(
-          JSON.stringify({ success: false, error: error.message }),
-          { status: 400, headers: corsHeaders }
-        )
-      }
+      if (error) return json({ success: false, error: error.message }, 400)
 
-      return new Response(
-        JSON.stringify({ success: true, data: data?.[0] }),
-        { headers: corsHeaders }
-      )
+      return json({ success: true, data: data?.[0] })
     }
 
-    return new Response(
-      JSON.stringify({ error: 'Not found' }),
-      { status: 404, headers: corsHeaders }
-    )
-  } catch (error) {
-    return new Response(
-      JSON.stringify({ error: error.message }),
-      { status: 500, headers: corsHeaders }
+    return json({ error: "Not found" }, 404)
+  } catch (err) {
+    return json(
+      { error: err instanceof Error ? err.message : "Unknown error" },
+      500
     )
   }
 })
