@@ -50,11 +50,22 @@ export interface Profile {
 }
 
 export interface Friend {
-  id: string
+  friendship_id: string
   user_id: string
-  friend_user_id: string
-  friend_username: string
+  username: string
+  name: string | null
+  avatar_url: string | null
+}
+
+export interface FriendRequestItem {
+  id: string
   created_at: string
+  requester: {
+    user_id: string
+    username: string
+    name: string | null
+    avatar_url: string | null
+  }
 }
 
 export interface Settings {
@@ -73,6 +84,20 @@ export interface Location {
   address: string
   accuracy: number
   timestamp: string
+}
+
+export interface FriendLocation {
+  user_id: string
+  latitude: number
+  longitude: number
+  address: string | null
+  accuracy: number | null
+  updated_at: string
+  profile: {
+    username: string
+    name: string | null
+    avatar_url: string | null
+  }
 }
 
 export interface ApiError {
@@ -131,5 +156,5 @@ export interface SignInInput {
 }
 
 export interface FriendRequest {
-  friend_username: string
+  username: string
 }

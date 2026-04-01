@@ -1,14 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
-  Modal,
-  ScrollView,
-  StyleSheet,
-  TextInput,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Alert,
+    Modal,
+    ScrollView,
+    StyleSheet,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
@@ -28,6 +28,9 @@ export default function HomeScreen() {
   const { data: tasks, loading, refetch: refetchTasks } = useApi(() =>
     taskService.getTasks()
   );
+
+  // Debug logging
+  console.log('Tasks data received:', tasks, 'Type:', typeof tasks, 'Is Array:', Array.isArray(tasks));
 
   const { mutate: createTask } = useMutation(
     (data: CreateTaskInput) => taskService.createTask(data)
@@ -160,7 +163,7 @@ export default function HomeScreen() {
   };
 
   const getFilteredAndSortedTasks = () => {
-    if (!tasks) return [];
+    if (!tasks || !Array.isArray(tasks)) return [];
 
     let filtered = [...tasks];
 
@@ -209,8 +212,9 @@ export default function HomeScreen() {
   };
 
   const filteredTasks = getFilteredAndSortedTasks();
-  const completedCount = tasks?.filter((t) => t.completed).length || 0;
-  const totalCount = tasks?.length || 0;
+  const taskList = Array.isArray(tasks) ? tasks : [];
+  const completedCount = taskList.filter((t) => t.completed).length;
+  const totalCount = taskList.length;
 
   if (loading) {
     return (

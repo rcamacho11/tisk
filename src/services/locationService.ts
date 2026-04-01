@@ -1,5 +1,5 @@
 import { api } from '../api/client'
-import { ApiResponse, Location } from '../types/api'
+import { ApiResponse, FriendLocation, Location } from '../types/api'
 
 class LocationService {
   async sendLocation(input: Location): Promise<ApiResponse<void>> {
@@ -11,10 +11,8 @@ class LocationService {
     })
   }
 
-  async getCurrentLocation(): Promise<Location | null> {
-    // This will be implemented with expo-location
-    // For now, returning null as a placeholder
-    return null
+  async getFriendsLocations(): Promise<ApiResponse<FriendLocation[]>> {
+    return api.get<FriendLocation[]>('/location/friends')
   }
 }
 

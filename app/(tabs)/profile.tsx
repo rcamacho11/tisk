@@ -29,6 +29,9 @@ export default function ProfileScreen() {
   const { data: friends, loading: friendsLoading, refetch: refetchFriends } = useApi(() =>
     friendService.getFriends()
   )
+  const { data: friendRequests, refetch: refetchRequests } = useApi(() =>
+    friendService.getFriendRequests()
+  )
 
   const [editMode, setEditMode] = useState(false)
   const [editData, setEditData] = useState<UpdateProfileInput>({
@@ -43,7 +46,12 @@ export default function ProfileScreen() {
   )
 
   const { mutate: addFriend, loading: addingFriend } = useMutation(
-    (username: string) => friendService.addFriend({ friend_username: username })
+    (username: string) => friendService.addFriend({ username })
+  )
+
+  const { mutate: respondToRequest } = useMutation(
+    ({ id, status }: { id: string; status: 'accepted' | 'rejected' }) =>
+      friendService.respondToRequest(id, status)
   )
 
   const handleUpdateProfile = async () => {
@@ -74,8 +82,18 @@ export default function ProfileScreen() {
     refetchFriends()
   }
 
-  const handleRemoveFriend = async (friendId: string) => {
-    const { error } = await friendService.removeFriend(friendId)
+  const handleRespondToRequest = async (id: string, status: 'accepted' | 'rejected') => {
+    const { error } = await respondToRequest({ id, status })
+    if (error) {
+      Alert.alert('Error', error.message)
+      return
+    }
+    refetchRequests()
+    refetchFriends()
+  }
+
+  const handleRemoveFriend = async (friendshipId: string) => {
+    const { error } = await friendService.removeFriend(friendshipId)
     if (error) {
       Alert.alert('Error', error.message)
       return
@@ -203,6 +221,37 @@ export default function ProfileScreen() {
         </View>
       )}
 
+      {/* Pending Friend Requests */}
+      {friendRequests && friendRequests.length > 0 && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Friend Requests ({friendRequests.length})</Text>
+          {friendRequests.map((request) => (
+            <View key={request.id} style={styles.friendItem}>
+              <View>
+                <Text style={styles.friendName}>{request.requester.username}</Text>
+                {request.requester.name && (
+                  <Text style={styles.friendSubtext}>{request.requester.name}</Text>
+                )}
+              </View>
+              <View style={styles.requestActions}>
+                <TouchableOpacity
+                  style={styles.acceptButton}
+                  onPress={() => handleRespondToRequest(request.id, 'accepted')}
+                >
+                  <Ionicons name="checkmark" size={18} color="#fff" />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.rejectButton}
+                  onPress={() => handleRespondToRequest(request.id, 'rejected')}
+                >
+                  <Ionicons name="close" size={18} color="#fff" />
+                </TouchableOpacity>
+              </View>
+            </View>
+          ))}
+        </View>
+      )}
+
       {/* Friends */}
       <View style={styles.section}>
         <View style={styles.sectionHeader}>
@@ -216,12 +265,15 @@ export default function ProfileScreen() {
           <ActivityIndicator color="#007AFF" />
         ) : friends && friends.length > 0 ? (
           friends.map((friend) => (
-            <View key={friend.id} style={styles.friendItem}>
+            <View key={friend.friendship_id} style={styles.friendItem}>
               <View>
-                <Text style={styles.friendName}>{friend.friend_username}</Text>
+                <Text style={styles.friendName}>{friend.username}</Text>
+                {friend.name && (
+                  <Text style={styles.friendSubtext}>{friend.name}</Text>
+                )}
               </View>
               <TouchableOpacity
-                onPress={() => handleRemoveFriend(friend.id)}
+                onPress={() => handleRemoveFriend(friend.friendship_id)}
               >
                 <Ionicons name="close-circle" size={24} color="#FF3B30" />
               </TouchableOpacity>
@@ -483,6 +535,25 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: '#000',
+  },
+  friendSubtext: {
+    fontSize: 12,
+    color: '#999',
+    marginTop: 2,
+  },
+  requestActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  acceptButton: {
+    backgroundColor: '#34C759',
+    borderRadius: 16,
+    padding: 6,
+  },
+  rejectButton: {
+    backgroundColor: '#FF3B30',
+    borderRadius: 16,
+    padding: 6,
   },
   emptyText: {
     fontSize: 14,
