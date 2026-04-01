@@ -1,124 +1,128 @@
-import AsyncStorage from '@react-native-async-storage/async-storage'
-import { api } from '../api/client'
-import { AuthResponse, Session, SignInInput, SignUpInput } from '../types/api'
+import { supabase } from '../../utils/supabase'
+import { AuthResponse, Session, SignInInput, SignUpInput, User } from '../types/api'
 
 class AuthService {
+  // Transform Supabase user to our User type
+  private transformSupabaseUserToUser(supabaseUser: any): User {
+    return {
+      id: supabaseUser.id,
+      email: supabaseUser.email || '',
+      name: supabaseUser.user_metadata?.name || '',
+      created_at: supabaseUser.created_at || new Date().toISOString(),
+    }
+  }
+
+  // Transform Supabase session to our Session type
+  private transformSupabaseSessionToSession(supabaseSession: any): Session | null {
+    if (!supabaseSession) return null
+
+    const user = this.transformSupabaseUserToUser(supabaseSession.user)
+    return {
+      access_token: supabaseSession.access_token || '',
+      token_type: supabaseSession.token_type || 'Bearer',
+      expires_in: supabaseSession.expires_in || 0,
+      refresh_token: supabaseSession.refresh_token || '',
+      user,
+    } as Session
+  }
+
   async signup(input: SignUpInput): Promise<AuthResponse> {
     console.log('[AuthService] ========== SIGNUP START ==========')
     console.log('[AuthService] Starting signup with email:', input.email)
     console.log('[AuthService] Signup input fields:', { email: input.email, password: '***', name: input.name })
-    
-    const signupEndpoint = '/auth?action=signup'
-    const signupPayload = {
-      email: input.email,
-      password: input.password,
-      name: input.name,
-    }
-    
-    console.log('[AuthService] ✅ Endpoint:', signupEndpoint)
-    console.log('[AuthService] ✅ Payload fields:', { email: signupPayload.email, password: '***', name: signupPayload.name })
-    console.log('[AuthService] Making API call to:', signupEndpoint)
-    
-    const { data, error } = await api.post<Session>(
-      signupEndpoint,
-      signupPayload,
-      { authenticated: false },
-    )
-
-    if (error) {
-      console.error('[AuthService] ❌ Signup API error:', error)
-      console.error('[AuthService] Error message:', error?.message)
-      return { session: null, user: null, error: error?.message || 'Signup failed' }
-    }
-
-    if (!data) {
-      console.error('[AuthService] ❌ Signup returned no data')
-      return { session: null, user: null, error: 'No data returned from signup' }
-    }
 
     try {
-      console.log('[AuthService] ✅ API response received, storing token')
-      await AsyncStorage.setItem('supabase_access_token', data.access_token)
-      console.log('[AuthService] ✅ Token stored successfully')
-    } catch (storageError) {
-      console.error('[AuthService] ❌ Failed to store token:', storageError)
-      return { session: null, user: null, error: 'Failed to store session token' }
-    }
+      const { data, error } = await supabase.auth.signUp({
+        email: input.email,
+        password: input.password,
+        options: {
+          data: {
+            name: input.name,
+          },
+        },
+      })
 
-    console.log('[AuthService] ✅ Signup successful for:', input.email)
-    console.log('[AuthService] ========== SIGNUP END ==========')
-    return {
-      session: data,
-      user: data.user,
-      error: null,
+      if (error) {
+        console.error('[AuthService] ❌ Signup auth error:', error.message)
+        return { session: null, user: null, error: error.message }
+      }
+
+      // Transform Supabase response to our types
+      const transformedUser = data.user ? this.transformSupabaseUserToUser(data.user) : null
+      const transformedSession = data.session ? this.transformSupabaseSessionToSession(data.session) : null
+
+      console.log('[AuthService] ✅ Signup successful for:', input.email)
+      console.log('[AuthService] ========== SIGNUP END ==========')
+      return {
+        session: transformedSession,
+        user: transformedUser,
+        error: null,
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Signup failed'
+      console.error('[AuthService] ❌ Signup error:', message)
+      return { session: null, user: null, error: message }
     }
   }
 
   async login(input: SignInInput): Promise<AuthResponse> {
     console.log('[AuthService] Starting login with email:', input.email)
-    
-    const loginEndpoint = '/auth?action=login'
-    const loginPayload = {
-      email: input.email,
-      password: input.password,
-    }
-    
-    console.log('[AuthService] Calling login endpoint:', loginEndpoint)
-    console.log('[AuthService] Login payload:', loginPayload)
-    
-    const { data, error } = await api.post<Session>(loginEndpoint, loginPayload, {
-      authenticated: false,
-    })
-
-    if (error) {
-      console.error('[AuthService] Login error:', error)
-      return { session: null, user: null, error: error?.message || 'Login failed' }
-    }
-
-    if (!data) {
-      console.error('[AuthService] Login returned no data')
-      return { session: null, user: null, error: 'No data returned from login' }
-    }
 
     try {
-      // Store access token
-      await AsyncStorage.setItem('supabase_access_token', data.access_token)
-      console.log('[AuthService] Token stored successfully')
-    } catch (storageError) {
-      console.error('[AuthService] Failed to store token:', storageError)
-      return { session: null, user: null, error: 'Failed to store session token' }
-    }
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: input.email,
+        password: input.password,
+      })
 
-    console.log('[AuthService] Login successful for:', input.email)
-    return {
-      session: data,
-      user: data.user,
-      error: null,
+      if (error) {
+        console.error('[AuthService] Login error:', error.message)
+        return { session: null, user: null, error: error.message }
+      }
+
+      // Transform Supabase response to our types
+      const transformedUser = data.user ? this.transformSupabaseUserToUser(data.user) : null
+      const transformedSession = data.session ? this.transformSupabaseSessionToSession(data.session) : null
+
+      console.log('[AuthService] Login successful for:', input.email)
+      return {
+        session: transformedSession,
+        user: transformedUser,
+        error: null,
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Login failed'
+      console.error('[AuthService] Login error:', message)
+      return { session: null, user: null, error: message }
     }
   }
 
   async logout(): Promise<void> {
     try {
       console.log('[AuthService] Logging out...')
-      await AsyncStorage.removeItem('supabase_access_token')
+      await supabase.auth.signOut()
       console.log('[AuthService] Logout successful')
     } catch (error) {
       console.error('[AuthService] Logout error:', error)
     }
   }
 
-  async getSession(): Promise<Session | null> {
+  async getSession() {
     try {
-      const token = await AsyncStorage.getItem('supabase_access_token')
-      if (!token) {
-        console.log('[AuthService] No session token found')
+      const { data, error } = await supabase.auth.getSession()
+      if (error) {
+        console.log('[AuthService] Get session error:', error.message)
         return null
       }
 
-      console.log('[AuthService] Session token found')
-      // In a real app, you'd validate the token with the backend
-      // For now, we'll just check if it exists
-      return { access_token: token } as Session
+      if (!data.session) {
+        console.log('[AuthService] No session found')
+        return null
+      }
+
+      // Transform Supabase session to our Session type
+      const transformedSession = this.transformSupabaseSessionToSession(data.session)
+      console.log('[AuthService] Session found')
+      return transformedSession
     } catch (error) {
       console.error('[AuthService] Get session error:', error)
       return null

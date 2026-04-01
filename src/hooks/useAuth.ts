@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useCallback, useEffect, useState } from 'react'
 import { authService } from '../services/authService'
 import { Session, User } from '../types/api'
@@ -18,6 +19,13 @@ export function useAuth() {
         if (userSession) {
           console.log('[useAuth] User session found')
           setUser(userSession.user)
+          // Restore token to AsyncStorage
+          try {
+            await AsyncStorage.setItem('supabase_access_token', userSession.access_token)
+            console.log('[useAuth] Token restored to AsyncStorage')
+          } catch (storageErr) {
+            console.error('[useAuth] Failed to restore token:', storageErr)
+          }
         } else {
           console.log('[useAuth] No user session found')
         }
@@ -47,6 +55,17 @@ export function useAuth() {
         }
         setSession(response.session)
         setUser(response.user)
+        
+        // Store access token for authenticated requests
+        if (response.session?.access_token) {
+          try {
+            await AsyncStorage.setItem('supabase_access_token', response.session.access_token)
+            console.log('[useAuth] Access token stored for signup')
+          } catch (storageErr) {
+            console.error('[useAuth] Failed to store access token:', storageErr)
+          }
+        }
+        
         console.log('[useAuth] Signup successful, user:', response.user?.email)
         return true
       } catch (err) {
@@ -74,6 +93,17 @@ export function useAuth() {
       }
       setSession(response.session)
       setUser(response.user)
+      
+      // Store access token for authenticated requests
+      if (response.session?.access_token) {
+        try {
+          await AsyncStorage.setItem('supabase_access_token', response.session.access_token)
+          console.log('[useAuth] Access token stored for login')
+        } catch (storageErr) {
+          console.error('[useAuth] Failed to store access token:', storageErr)
+        }
+      }
+      
       console.log('[useAuth] Login successful, user:', response.user?.email)
       return true
     } catch (err) {
@@ -94,6 +124,15 @@ export function useAuth() {
       setUser(null)
       setSession(null)
       setError(null)
+      
+      // Clear token from AsyncStorage
+      try {
+        await AsyncStorage.removeItem('supabase_access_token')
+        console.log('[useAuth] Access token cleared')
+      } catch (storageErr) {
+        console.error('[useAuth] Failed to clear token:', storageErr)
+      }
+      
       console.log('[useAuth] Logout successful')
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Logout failed'

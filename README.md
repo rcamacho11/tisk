@@ -1,50 +1,25 @@
-# Welcome to your Expo app 👋
+Tisk
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Tisk is a location-aware task management platform designed to bring accountability to real-world tasks. Traditional task management apps focus on reminders and checklists, but they have no reliable way to verify whether a task was actually completed in the real world. Tisk solves this problem by combining location-based task assignments with AI-powered verification of user-submitted proof.
 
-## Get started
+In Tisk, users can create tasks and attach them to specific geographic locations. These tasks can be assigned either to themselves or to other people within a group, such as friends, family members, coworkers, or employees. For example, a parent might assign a child a task to take out the trash when they arrive home, a manager might assign a field employee a task to inspect equipment at a specific site, or roommates might coordinate household chores tied to certain locations.
 
-1. Install dependencies
+When the assigned user arrives at the required location, the app prompts them to complete the task. To confirm completion, the user must submit a photo taken at the task location. This photo is then analyzed using AI-based image recognition, which evaluates whether the photo actually shows evidence that the task was completed. For example, if the task is to clean a workspace, the AI system evaluates whether the submitted photo reflects the expected outcome of the task.
 
-   ```bash
-   npm install
-   ```
+This system introduces a verification layer that most productivity tools lack. Instead of relying solely on trust or manual oversight, Tisk provides automated validation of real-world task completion.
 
-2. Start the app
+The platform also includes collaborative task management features, allowing groups to assign, track, and monitor tasks across multiple users. Task status updates occur in real time, and the system keeps a history of completed tasks and submitted verification photos.
 
-   ```bash
-   npx expo start
-   ```
+From a technical standpoint, the system integrates:
 
-In the output, you'll find options to open the app in a
+Location-based triggers to detect when a user is near the task location
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+Cloud-based APIs and databases for managing task assignments and group interactions
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+AI-powered image analysis to verify completion evidence
 
-## Get a fresh project
+Real-time updates so task creators can track progress as it happens
 
-When you're ready, run:
+The broader vision for Tisk is to create a platform for verifiable real-world task completion, applicable not only to personal productivity but also to use cases like field service management, gig work verification, remote workforce coordination, and family task organization.
 
-```bash
-npm run reset-project
-```
-
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
-
-## Learn more
-
-To learn more about developing your project with Expo, look at the following resources:
-
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+By combining location awareness, collaborative task management, and automated verification through AI, Tisk bridges the gap between digital task tracking and real-world accountability.

@@ -1,9 +1,35 @@
 import { api } from '../api/client'
 import { ApiResponse, CreateTaskInput, Task, UpdateTaskInput } from '../types/api'
 
+interface TasksResponse {
+  success: boolean
+  tasks?: Task[]
+  error?: string
+}
+
 class TaskService {
   async getTasks(): Promise<ApiResponse<Task[]>> {
-    return api.get<Task[]>('/tasks')
+    try {
+      const response = await api.get<TasksResponse>('/tasks')
+      
+      // If there's an error, return it
+      if (response.error) {
+        return { data: null, error: response.error }
+      }
+      
+      // Extract the tasks array from the response
+      // The edge function returns { success: true, tasks: [...] }
+      const tasks = response.data?.tasks || []
+      
+      return { data: tasks, error: null }
+    } catch (error) {
+      return {
+        data: null,
+        error: {
+          message: error instanceof Error ? error.message : 'Failed to fetch tasks',
+        },
+      }
+    }
   }
 
   async getTask(id: string): Promise<ApiResponse<Task>> {
