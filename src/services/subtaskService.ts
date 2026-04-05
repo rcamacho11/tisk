@@ -2,6 +2,10 @@ import { api } from '../api/client'
 import { ApiResponse, CreateSubtaskInput, Subtask } from '../types/api'
 
 class SubtaskService {
+  async getSubtasks(taskId: string): Promise<ApiResponse<Subtask[]>> {
+    return api.get<Subtask[]>(`/tasks/${taskId}/subtasks`)
+  }
+
   async createSubtask(
     taskId: string,
     input: CreateSubtaskInput

@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
@@ -15,12 +15,13 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useApi, useMutation } from '@/src/hooks/useApi';
+import { categoryService } from '@/src/services/categoryService';
+import { subtaskService } from '@/src/services/subtaskService';
 import { taskService } from '@/src/services/taskService';
-import { CreateTaskInput, Task, UpdateTaskInput } from '@/src/types/api';
+import { Category, CreateTaskInput, Subtask, Task, UpdateTaskInput } from '@/src/types/api';
 
 type Priority = 'low' | 'medium' | 'high';
 
-const CATEGORIES = ['Work', 'Personal', 'Shopping', 'Health', 'Finance'];
 const PRIORITIES: Priority[] = ['low', 'medium', 'high'];
 
 export default function HomeScreen() {
@@ -28,9 +29,11 @@ export default function HomeScreen() {
   const { data: tasks, loading, refetch: refetchTasks } = useApi(() =>
     taskService.getTasks()
   );
+  const { data: categoriesData, refetch: refetchCategories } = useApi(() =>
+    categoryService.getCategories()
+  );
 
-  // Debug logging
-  console.log('Tasks data received:', tasks, 'Type:', typeof tasks, 'Is Array:', Array.isArray(tasks));
+  const categories: Category[] = Array.isArray(categoriesData) ? categoriesData : [];
 
   const { mutate: createTask } = useMutation(
     (data: CreateTaskInput) => taskService.createTask(data)
@@ -56,15 +59,46 @@ export default function HomeScreen() {
   const [showModal, setShowModal] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
+  const [subtasksMap, setSubtasksMap] = useState<Record<string, Subtask[]>>({});
+  const [newSubtaskInput, setNewSubtaskInput] = useState('');
   const [sortBy, setSortBy] = useState<'date' | 'priority' | 'category'>('date');
   const [filterBy, setFilterBy] = useState<'all' | 'active' | 'completed'>('all');
+
+  // Fetch subtasks when a task is expanded
+  useEffect(() => {
+    if (!expandedTaskId) return;
+    subtaskService.getSubtasks(expandedTaskId).then(({ data }) => {
+      if (data && Array.isArray(data)) {
+        setSubtasksMap((prev) => ({ ...prev, [expandedTaskId]: data }));
+      }
+    });
+  }, [expandedTaskId]);
+
+  const handleAddSubtask = async (taskId: string) => {
+    if (!newSubtaskInput.trim()) return;
+    const { error } = await subtaskService.createSubtask(taskId, { title: newSubtaskInput.trim() });
+    if (error) { Alert.alert('Error', error.message); return; }
+    setNewSubtaskInput('');
+    const { data } = await subtaskService.getSubtasks(taskId);
+    if (data && Array.isArray(data)) setSubtasksMap((prev) => ({ ...prev, [taskId]: data }));
+  };
+
+  const handleToggleSubtask = async (taskId: string, subtaskId: string, completed: boolean) => {
+    const { error } = completed
+      ? await subtaskService.uncompleteSubtask(subtaskId)
+      : await subtaskService.completeSubtask(subtaskId);
+    if (error) { Alert.alert('Error', error.message); return; }
+    const { data } = await subtaskService.getSubtasks(taskId);
+    if (data && Array.isArray(data)) setSubtasksMap((prev) => ({ ...prev, [taskId]: data }));
+  };
 
   // Modal form state
   const [modalInput, setModalInput] = useState('');
   const [modalDescription, setModalDescription] = useState('');
   const [modalPriority, setModalPriority] = useState<Priority>('medium');
-  const [modalCategory, setModalCategory] = useState('Personal');
+  const [modalCategoryId, setModalCategoryId] = useState<string | null>(null);
   const [modalDueDate, setModalDueDate] = useState('');
+  const [newCategoryName, setNewCategoryName] = useState('');
 
   const handleOpenModal = (task?: Task) => {
     if (task) {
@@ -72,17 +106,26 @@ export default function HomeScreen() {
       setModalInput(task.title);
       setModalDescription(task.description || '');
       setModalPriority((task.priority as Priority) || 'medium');
-      setModalCategory(task.category || 'Personal');
+      setModalCategoryId((task as any).category_id || null);
       setModalDueDate(task.dueDate || '');
     } else {
       setEditingTask(null);
       setModalInput('');
       setModalDescription('');
       setModalPriority('medium');
-      setModalCategory('Personal');
+      setModalCategoryId(null);
       setModalDueDate('');
     }
     setShowModal(true);
+  };
+
+  const handleCreateCategory = async () => {
+    if (!newCategoryName.trim()) return;
+    const { data, error } = await categoryService.createCategory({ name: newCategoryName.trim() });
+    if (error) { Alert.alert('Error', error.message); return; }
+    setNewCategoryName('');
+    if (data) setModalCategoryId((data as any).id);
+    refetchCategories();
   };
 
   const handleSaveTask = async () => {
@@ -98,8 +141,8 @@ export default function HomeScreen() {
           title: modalInput.trim(),
           description: modalDescription.trim(),
           priority: modalPriority,
-          category: modalCategory,
           dueDate: modalDueDate || undefined,
+          ...(modalCategoryId ? { category_id: modalCategoryId } : {}),
         },
       });
 
@@ -113,9 +156,9 @@ export default function HomeScreen() {
         title: modalInput.trim(),
         description: modalDescription.trim(),
         priority: modalPriority,
-        category: modalCategory,
         dueDate: modalDueDate || undefined,
-      });
+        ...(modalCategoryId ? { category_id: modalCategoryId } : {}),
+      } as any);
 
       if (error) {
         Alert.alert('Error', error.message);
@@ -372,11 +415,13 @@ export default function HomeScreen() {
                         {(task.priority as string)?.charAt(0).toUpperCase()}
                       </ThemedText>
                     </ThemedView>
-                    <ThemedView style={styles.categoryBadge}>
-                      <ThemedText style={styles.categoryBadgeText}>
-                        {task.category}
-                      </ThemedText>
-                    </ThemedView>
+                    {(task as any).category_id && (
+                      <ThemedView style={styles.categoryBadge}>
+                        <ThemedText style={styles.categoryBadgeText}>
+                          {categories.find((c) => c.id === (task as any).category_id)?.name ?? ''}
+                        </ThemedText>
+                      </ThemedView>
+                    )}
                   </ThemedView>
                 </ThemedView>
 
@@ -388,6 +433,37 @@ export default function HomeScreen() {
               {/* Expanded Task Details */}
               {expandedTaskId === task.id && (
                 <ThemedView style={styles.expandedContent}>
+                  {/* Subtasks */}
+                  <ThemedText style={styles.subtaskTitle}>Subtasks</ThemedText>
+                  {(subtasksMap[task.id] || []).map((subtask) => (
+                    <TouchableOpacity
+                      key={subtask.id}
+                      style={styles.subtaskItem}
+                      onPress={() => handleToggleSubtask(task.id, subtask.id, subtask.completed)}
+                    >
+                      <Ionicons
+                        name={subtask.completed ? 'checkbox' : 'checkbox-outline'}
+                        size={18}
+                        color={subtask.completed ? '#4CAF50' : '#888'}
+                      />
+                      <ThemedText style={[styles.subtaskText, subtask.completed && styles.completedTaskText]}>
+                        {subtask.title}
+                      </ThemedText>
+                    </TouchableOpacity>
+                  ))}
+                  <ThemedView style={styles.addSubtaskContainer}>
+                    <TextInput
+                      style={[styles.subtaskInput, { color: colorScheme === 'dark' ? '#fff' : '#000' }]}
+                      placeholder="Add subtask..."
+                      placeholderTextColor="#888"
+                      value={newSubtaskInput}
+                      onChangeText={setNewSubtaskInput}
+                    />
+                    <TouchableOpacity onPress={() => handleAddSubtask(task.id)} style={styles.addSubtaskBtn}>
+                      <Ionicons name="add-circle" size={28} color="#4CAF50" />
+                    </TouchableOpacity>
+                  </ThemedView>
+
                   <TouchableOpacity
                     onPress={() => handleDeleteTask(task.id)}
                     style={styles.deleteTaskButton}
@@ -486,29 +562,37 @@ export default function HomeScreen() {
 
               {/* Category */}
               <ThemedText style={styles.modalLabel}>Category</ThemedText>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                style={{ marginBottom: 20 }}>
-                {CATEGORIES.map((cat) => (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}>
+                <TouchableOpacity
+                  style={[styles.categoryButton, !modalCategoryId && styles.categoryButtonActive]}
+                  onPress={() => setModalCategoryId(null)}>
+                  <ThemedText style={[styles.categoryButtonText, !modalCategoryId && styles.categoryButtonTextActive]}>
+                    None
+                  </ThemedText>
+                </TouchableOpacity>
+                {categories.map((cat) => (
                   <TouchableOpacity
-                    key={cat}
-                    style={[
-                      styles.categoryButton,
-                      modalCategory === cat && styles.categoryButtonActive,
-                    ]}
-                    onPress={() => setModalCategory(cat)}>
-                    <ThemedText
-                      style={[
-                        styles.categoryButtonText,
-                        modalCategory === cat &&
-                          styles.categoryButtonTextActive,
-                      ]}>
-                      {cat}
+                    key={cat.id}
+                    style={[styles.categoryButton, modalCategoryId === cat.id && styles.categoryButtonActive]}
+                    onPress={() => setModalCategoryId(cat.id)}>
+                    <ThemedText style={[styles.categoryButtonText, modalCategoryId === cat.id && styles.categoryButtonTextActive]}>
+                      {cat.name}
                     </ThemedText>
                   </TouchableOpacity>
                 ))}
               </ScrollView>
+              <ThemedView style={styles.addSubtaskContainer}>
+                <TextInput
+                  style={[styles.subtaskInput, { color: colorScheme === 'dark' ? '#fff' : '#000', marginBottom: 16 }]}
+                  placeholder="New category name..."
+                  placeholderTextColor="#888"
+                  value={newCategoryName}
+                  onChangeText={setNewCategoryName}
+                />
+                <TouchableOpacity onPress={handleCreateCategory} style={styles.addSubtaskBtn}>
+                  <Ionicons name="add-circle" size={28} color="#4CAF50" />
+                </TouchableOpacity>
+              </ThemedView>
 
               {/* Save Button */}
               <TouchableOpacity

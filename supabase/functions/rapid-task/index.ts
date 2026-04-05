@@ -250,6 +250,122 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ success: true })
     }
 
+    /* ---------------- SUBTASK ROUTES ---------------- */
+
+    const subtaskTaskMatch = endpoint.match(/^\/tasks\/([^/]+)\/subtasks$/)
+
+    if (subtaskTaskMatch && req.method === "GET") {
+      const taskId = subtaskTaskMatch[1]
+      console.log("[Subtasks] GET /tasks/" + taskId + "/subtasks")
+
+      const { data, error } = await supabase
+        .from("subtasks")
+        .select("*")
+        .eq("task_id", taskId)
+        .order("created_at", { ascending: true })
+
+      if (error) return jsonResponse({ success: false, error: error.message }, 400)
+
+      return jsonResponse({ success: true, subtasks: data })
+    }
+
+    if (subtaskTaskMatch && req.method === "POST") {
+      const taskId = subtaskTaskMatch[1]
+      console.log("[Subtasks] POST /tasks/" + taskId + "/subtasks")
+      const body = await parseBody(req)
+
+      const { data, error } = await supabase
+        .from("subtasks")
+        .insert({ task_id: taskId, title: body.title as string, completed: false })
+        .select()
+        .single()
+
+      if (error) return jsonResponse({ success: false, error: error.message }, 400)
+
+      return jsonResponse({ success: true, data })
+    }
+
+    const subtaskMatch = endpoint.match(/^\/subtasks\/([^/]+)$/)
+
+    if (subtaskMatch && req.method === "PUT") {
+      const subtaskId = subtaskMatch[1]
+      console.log("[Subtasks] PUT /subtasks/" + subtaskId)
+      const updates = await parseBody(req)
+
+      const { data, error } = await supabase
+        .from("subtasks")
+        .update(updates)
+        .eq("id", subtaskId)
+        .select()
+        .single()
+
+      if (error) return jsonResponse({ success: false, error: error.message }, 400)
+
+      return jsonResponse({ success: true, data })
+    }
+
+    if (subtaskMatch && req.method === "DELETE") {
+      const subtaskId = subtaskMatch[1]
+      console.log("[Subtasks] DELETE /subtasks/" + subtaskId)
+
+      const { error } = await supabase
+        .from("subtasks")
+        .delete()
+        .eq("id", subtaskId)
+
+      if (error) return jsonResponse({ success: false, error: error.message }, 400)
+
+      return jsonResponse({ success: true })
+    }
+
+    /* ---------------- CATEGORY ROUTES ---------------- */
+
+    if (endpoint === "/categories" && req.method === "GET") {
+      console.log("[Categories] GET /categories")
+
+      const { data, error } = await supabase
+        .from("categories")
+        .select("*")
+        .eq("user_id", userId)
+        .order("name", { ascending: true })
+
+      if (error) return jsonResponse({ success: false, error: error.message }, 400)
+
+      return jsonResponse({ success: true, categories: data })
+    }
+
+    if (endpoint === "/categories" && req.method === "POST") {
+      console.log("[Categories] POST /categories")
+      const body = await parseBody(req)
+
+      const { data, error } = await supabase
+        .from("categories")
+        .insert({ user_id: userId, name: body.name as string, color: body.color ?? null })
+        .select()
+        .single()
+
+      if (error) return jsonResponse({ success: false, error: error.message }, 400)
+
+      return jsonResponse({ success: true, data })
+    }
+
+    const categoryMatch = endpoint.match(/^\/categories\/([^/]+)$/)
+
+    if (categoryMatch && req.method === "DELETE") {
+      const categoryId = categoryMatch[1]
+      console.log("[Categories] DELETE /categories/" + categoryId)
+
+      const { error } = await supabase
+        .from("categories")
+        .delete()
+        .eq("id", categoryId)
+        .eq("user_id", userId)
+
+      if (error) return jsonResponse({ success: false, error: error.message }, 400)
+
+      return jsonResponse({ success: true })
+    }
+
     /* ---------------- FRIEND ROUTES ---------------- */
 
     // GET /friends — list accepted friends with their profile info

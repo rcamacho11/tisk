@@ -12,6 +12,7 @@ import {
   Alert,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -33,11 +34,24 @@ export default function ProfileScreen() {
     friendService.getFriendRequests()
   )
 
+  const { mutate: updateSettings } = useMutation(
+    (data: Parameters<typeof settingsService.updateSettings>[0]) =>
+      settingsService.updateSettings(data)
+  )
+
   const [editMode, setEditMode] = useState(false)
   const [editData, setEditData] = useState<UpdateProfileInput>({
+    username: profile?.username || '',
     name: profile?.name || '',
     bio: profile?.bio || '',
   })
+
+  const handleToggleSetting = async (key: string, value: boolean) => {
+    const { error } = await updateSettings({ [key]: value })
+    if (error) {
+      Alert.alert('Error', error.message)
+    }
+  }
   const [showAddFriend, setShowAddFriend] = useState(false)
   const [friendUsername, setFriendUsername] = useState('')
 
@@ -141,6 +155,7 @@ export default function ProfileScreen() {
             <TouchableOpacity
               onPress={() => {
                 setEditData({
+                  username: profile?.username || '',
                   name: profile?.name || '',
                   bio: profile?.bio || '',
                 })
@@ -173,6 +188,19 @@ export default function ProfileScreen() {
       {editMode && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Edit Profile</Text>
+
+          <View style={styles.formGroup}>
+            <Text style={styles.label}>Username</Text>
+            <TextInput
+              style={styles.input}
+              value={editData.username}
+              onChangeText={(text) =>
+                setEditData({ ...editData, username: text })
+              }
+              placeholder="username"
+              autoCapitalize="none"
+            />
+          </View>
 
           <View style={styles.formGroup}>
             <Text style={styles.label}>Name</Text>
@@ -291,42 +319,45 @@ export default function ProfileScreen() {
         <View style={styles.settingRow}>
           <View>
             <Text style={styles.settingLabel}>Dark Mode</Text>
-            <Text style={styles.settingDescription}>
-              {settings?.dark_mode ? 'Enabled' : 'Disabled'}
-            </Text>
           </View>
-          <Ionicons
-            name={settings?.dark_mode ? 'moon' : 'sunny'}
-            size={24}
-            color="#007AFF"
+          <Switch
+            value={!!settings?.dark_mode}
+            onValueChange={(v) => handleToggleSetting('dark_mode', v)}
+            trackColor={{ true: '#007AFF' }}
           />
         </View>
 
         <View style={styles.settingRow}>
           <View>
             <Text style={styles.settingLabel}>Notifications</Text>
-            <Text style={styles.settingDescription}>
-              {settings?.notifications_enabled ? 'Enabled' : 'Disabled'}
-            </Text>
           </View>
-          <Ionicons
-            name={settings?.notifications_enabled ? 'notifications' : 'notifications-off'}
-            size={24}
-            color="#007AFF"
+          <Switch
+            value={!!settings?.notifications_enabled}
+            onValueChange={(v) => handleToggleSetting('notifications_enabled', v)}
+            trackColor={{ true: '#007AFF' }}
           />
         </View>
 
         <View style={styles.settingRow}>
           <View>
             <Text style={styles.settingLabel}>Private Profile</Text>
-            <Text style={styles.settingDescription}>
-              {settings?.private_profile ? 'Private' : 'Public'}
-            </Text>
           </View>
-          <Ionicons
-            name={settings?.private_profile ? 'lock-closed' : 'lock-open'}
-            size={24}
-            color="#007AFF"
+          <Switch
+            value={!!settings?.private_profile}
+            onValueChange={(v) => handleToggleSetting('private_profile', v)}
+            trackColor={{ true: '#007AFF' }}
+          />
+        </View>
+
+        <View style={styles.settingRow}>
+          <View>
+            <Text style={styles.settingLabel}>Share Location</Text>
+            <Text style={styles.settingDescription}>Let friends see your location on the map</Text>
+          </View>
+          <Switch
+            value={!!settings?.share_location}
+            onValueChange={(v) => handleToggleSetting('share_location', v)}
+            trackColor={{ true: '#34C759' }}
           />
         </View>
       </View>

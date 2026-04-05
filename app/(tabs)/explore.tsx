@@ -15,6 +15,7 @@ import { ThemedView } from '@/components/themed-view';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { locationService } from '@/src/services/locationService';
 import { FriendLocation } from '@/src/types/api';
+import { supabase } from '@/utils/supabase';
 
 interface LocationCoords {
   latitude: number;
@@ -128,20 +129,38 @@ export default function MapScreen() {
   useEffect(() => {
     requestLocationPermission();
     fetchFriendLocations();
+
+    // Subscribe to real-time location updates
+    const channel = supabase
+      .channel('friend-locations')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'user_locations',
+      }, () => {
+        fetchFriendLocations();
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
   }, []);
 
   const fetchFriendLocations = async () => {
     const { data } = await locationService.getFriendsLocations();
-    if (data) setFriendLocations(data);
+    if (data && Array.isArray(data)) setFriendLocations(data);
   };
 
   const requestLocationPermission = async () => {
     try {
       setLoading(true);
-      const { status } = await Location.requestForegroundPermissionsAsync();
+      const { status, canAskAgain } = await Location.requestForegroundPermissionsAsync();
 
       if (status !== 'granted') {
-        setError('Permission to access location was denied');
+        if (!canAskAgain) {
+          setError('Location permission is permanently disabled. Please enable it in Settings.');
+        } else {
+          setError('Permission to access location was denied');
+        }
         setLoading(false);
         return;
       }
@@ -251,16 +270,25 @@ export default function MapScreen() {
   }
 
   if (error) {
+    const isPermanentlyDenied = error.includes('permanently disabled');
     return (
       <ThemedView style={styles.container}>
         <ThemedView style={styles.errorContainer}>
           <Ionicons name="alert-circle-outline" size={48} color="#ff6b6b" />
           <ThemedText style={styles.errorText}>{error}</ThemedText>
-          <TouchableOpacity
-            style={styles.retryButton}
-            onPress={requestLocationPermission}>
-            <ThemedText style={styles.retryButtonText}>Try Again</ThemedText>
-          </TouchableOpacity>
+          {isPermanentlyDenied ? (
+            <TouchableOpacity
+              style={styles.retryButton}
+              onPress={() => Linking.openSettings()}>
+              <ThemedText style={styles.retryButtonText}>Open Settings</ThemedText>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              style={styles.retryButton}
+              onPress={requestLocationPermission}>
+              <ThemedText style={styles.retryButtonText}>Try Again</ThemedText>
+            </TouchableOpacity>
+          )}
         </ThemedView>
       </ThemedView>
     );
@@ -271,6 +299,7 @@ export default function MapScreen() {
       {location && (
         <>
           <WebView
+            key={friendLocations.map(f => f.user_id).join(',')}
             ref={webViewRef}
             source={{
               html: generateMapHTML(
