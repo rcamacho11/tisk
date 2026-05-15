@@ -4,18 +4,24 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Tisk is a location-aware task management React Native app built with Expo and Supabase. Core features include collaborative task management, location-based task assignments, and AI-powered photo verification of task completion.
+Tisk is a location-aware task management React Native app built with Expo and Supabase. Core features include task/subtask management, real-time friend location sharing on a map, a friend request system, and per-user settings. AI photo verification of task completion is planned but not yet implemented.
+
+See `docs/` for deep-dives:
+- [`docs/PURPOSE.md`](docs/PURPOSE.md) — goals, target users, planned features
+- [`docs/FRONTEND.md`](docs/FRONTEND.md) — screens, hooks, routing, component conventions
+- [`docs/BACKEND.md`](docs/BACKEND.md) — edge function routes, DB tables, auth flow
+- [`docs/STYLE.md`](docs/STYLE.md) — colors, theming, styling conventions
+- [`docs/ROADMAP.md`](docs/ROADMAP.md) — what's built, what's missing, known gaps
 
 ## Development Commands
 
 ```bash
-# Start dev server (opens Expo Go QR code)
+# Start dev server (Expo Go QR code)
 npm start
 
-# Platform-specific
+# Platform-specific native builds
 npm run ios
 npm run android
-npm run web
 
 # Lint
 npm run lint
@@ -33,56 +39,45 @@ supabase db reset                       # Reset DB with migrations + seed
 
 ## Architecture
 
-### Frontend (Expo Router — file-based routing)
+### Request Flow
 
-- `app/_layout.tsx` — Root layout; wraps the app in `AuthContext` and redirects unauthenticated users to `/login`
-- `app/(tabs)/` — Main tab screens: home/tasks (`index.tsx`), explore/friends (`explore.tsx`), profile (`profile.tsx`)
-- `app/login.tsx` — Login/signup screen
+```
+UI screen
+  → service (src/services/*.ts)
+    → ApiClient (src/api/client.ts)   — attaches auth token from AsyncStorage
+      → rapid-task edge function       — validates JWT, talks to Postgres
+        → Supabase PostgreSQL
+```
 
-### Backend (Single Supabase Edge Function)
+The edge function is the only path for database writes. The frontend Supabase client (`utils/supabase.ts`) is used only for Realtime subscriptions (location updates) — not for direct table queries.
 
-All API calls route through one Deno function at `supabase/functions/rapid-task/index.ts`. It handles auth (`POST /auth?action=signup|login`) and all CRUD for tasks, subtasks, profiles, friends, locations, categories, and settings.
+### Auth Token Storage
 
-The frontend calls this function via `EXPO_PUBLIC_API_URL` using the custom `ApiClient` in `src/api/client.ts`.
+`supabase_access_token` is stored in `AsyncStorage` and read by `ApiClient.getAuthToken()` on every request. The token is written on login/signup and cleared on logout or 401 response. `AuthContext` is the single source of auth state in the app.
 
-### Source Layout (`src/`)
+### Edge Function Response Envelope
 
-| Directory | Purpose |
-|---|---|
-| `src/api/client.ts` | Generic fetch wrapper used by all services |
-| `src/config/env.ts` | Reads `EXPO_PUBLIC_*` env vars |
-| `src/contexts/AuthContext.tsx` | Global auth state via React Context |
-| `src/hooks/useAuth.ts` | Hook to consume AuthContext |
-| `src/services/` | One service file per domain (auth, tasks, subtasks, friends, location, profile, categories, settings) |
-| `src/types/api.ts` | Shared TypeScript interfaces for all API entities |
+All responses follow `{ success: boolean, [entity]: data | error: string }`. `ApiClient` unwraps this — if there is exactly one key besides `success`/`error`, it is extracted as the returned `data`. Services should not need to unwrap manually, but `taskService` does its own unwrapping because the envelope key is `tasks` (plural) rather than `data`.
 
-### Data Flow
+### Routing
 
-1. UI → service (e.g. `taskService.ts`)
-2. Service → `ApiClient.post/get/put/delete`
-3. ApiClient → `rapid-task` edge function (authenticated via bearer token from AuthContext)
-4. Edge function → Supabase PostgreSQL
-
-### Supabase Client
-
-`utils/supabase.ts` initializes the Supabase JS client using `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_ANON_KEY`. This is used for direct Supabase operations (auth session management, realtime) while heavier CRUD goes through the edge function.
+Expo Router with file-based routing. `AuthGuard` in `app/_layout.tsx` redirects unauthenticated users to `/login` and authenticated users away from `/login`. The anchor screen is `login`.
 
 ## Environment Variables
 
-Copy `.env` and fill in values:
-
 ```
-EXPO_PUBLIC_API_URL=          # Edge function URL
-EXPO_PUBLIC_SUPABASE_URL=     # Supabase project URL
-EXPO_PUBLIC_SUPABASE_KEY=     # Publishable key
-EXPO_PUBLIC_SUPABASE_ANON_KEY= # Anon key (JWT)
+EXPO_PUBLIC_API_URL=           # Edge function URL (required by ApiClient)
+EXPO_PUBLIC_SUPABASE_URL=      # Supabase project URL
+EXPO_PUBLIC_SUPABASE_KEY=      # Publishable key (used as Bearer for public routes)
+EXPO_PUBLIC_SUPABASE_ANON_KEY= # Anon key (JWT) for Supabase JS client
 ```
 
-The edge function also requires `SUPABASE_SERVICE_ROLE_KEY` set in `supabase/functions/rapid-task/.env` (never commit this).
+Edge function requires `SUPABASE_SERVICE_ROLE_KEY` in `supabase/functions/rapid-task/.env`.
 
 ## Key Conventions
 
-- All screens are TypeScript (`.tsx`). Shared types live in `src/types/api.ts` — add new entity types there.
-- Services are plain classes/functions, not hooks. Hooks (in `src/hooks/`) wrap services for React component use.
-- `EXPO_PUBLIC_` prefix is required for any env var accessible in the Expo bundle.
-- The edge function is the single source of truth for database access — avoid calling Supabase tables directly from the frontend except for auth session management.
+- All new entity types belong in `src/types/api.ts`.
+- Services are plain classes/singletons — never hooks. Hooks in `src/hooks/` wrap services for React.
+- Use `useApi` for read-only fetches and `useMutation` for writes — both from `src/hooks/useApi.ts`.
+- Adding a new backend endpoint: add the route handler in `supabase/functions/rapid-task/index.ts`, add a method to the relevant service, add types to `src/types/api.ts`.
+- `EXPO_PUBLIC_` prefix is required for any env var used in the Expo bundle.
