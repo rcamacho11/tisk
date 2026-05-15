@@ -1,0 +1,87 @@
+# Full local dev stack: Supabase + rapid-task edge function + Expo Metro bundler.
+#
+# Usage:
+#   docker compose up            # start everything (first run is slow — Supabase images download)
+#   docker compose up --build    # rebuild after npm install changes
+#   docker compose down          # stop everything, including local Supabase containers
+#
+# Physical device / Android emulator testing — set HOST_IP to your LAN IP before starting:
+#   HOST_IP=$(ipconfig getifaddr en0) docker compose up      # macOS
+#
+# After first run, get the local Supabase credentials:
+#   docker compose exec supabase npx supabase status
+#
+# To reset the local database:
+#   docker compose exec supabase npx supabase db reset
+
+services:
+  supabase:
+    build:
+      context: .
+      args:
+        # The image's WORKDIR must match the host path so sibling containers created
+        # by `supabase start` receive valid Mac paths in their volume mounts.
+        WORKDIR: ${PWD}
+    network_mode: host  # shares Docker VM loopback so CLI can reach 127.0.0.1:54322
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - supabase_home:/root/.supabase
+      - ${PWD}:${PWD}
+      - supabase_node_modules:${PWD}/node_modules
+    working_dir: ${PWD}
+    stop_grace_period: 60s
+    command: >-
+      bash -c "
+        npx supabase stop --no-backup 2>/dev/null || true &&
+        npx supabase start &&
+        trap 'npx supabase stop' TERM INT &&
+        sleep infinity & wait $$!
+      "
+    healthcheck:
+      test: ["CMD", "curl", "-s", "http://127.0.0.1:54321", "-o", "/dev/null"]
+      interval: 15s
+      timeout: 10s
+      retries: 12
+      start_period: 120s
+
+  functions:
+    image: denoland/deno:alpine
+    working_dir: /app/functions/rapid-task
+    volumes:
+      - ./supabase/functions:/app/functions:ro
+      - deno_cache:/root/.cache/deno
+    environment:
+      SUPABASE_URL: http://host.docker.internal:54321
+      SUPABASE_ANON_KEY: ${SUPABASE_LOCAL_ANON_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRFA0NiK7kyqp0i_RcwB3cIU8XnYwAlMdgKCdJM3rGE}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_LOCAL_SERVICE_ROLE_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hj04zWl196z2-SBc0}
+    ports:
+      - "8083:8000"
+    command: run --allow-net --allow-env --allow-read --no-lock --watch index.ts
+    depends_on:
+      supabase:
+        condition: service_healthy
+
+  expo:
+    build: .  # uses default WORKDIR=/app
+    ports:
+      - "8081:8081"
+      - "19000:19000"
+      - "19001:19001"
+    environment:
+      EXPO_PUBLIC_API_URL: http://${HOST_IP:-host.docker.internal}:8083
+      EXPO_PUBLIC_SUPABASE_URL: http://${HOST_IP:-host.docker.internal}:54321
+      EXPO_PUBLIC_SUPABASE_KEY: ${SUPABASE_LOCAL_ANON_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRFA0NiK7kyqp0i_RcwB3cIU8XnYwAlMdgKCdJM3rGE}
+      EXPO_PUBLIC_SUPABASE_ANON_KEY: ${SUPABASE_LOCAL_ANON_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRFA0NiK7kyqp0i_RcwB3cIU8XnYwAlMdgKCdJM3rGE}
+      REACT_NATIVE_PACKAGER_HOSTNAME: ${HOST_IP:-localhost}
+    volumes:
+      - .:/app
+      - /app/node_modules
+    command: npx expo start --host lan
+    depends_on:
+      supabase:
+        condition: service_healthy
+
+volumes:
+  supabase_home:
+  supabase_node_modules:
+  deno_cache:
