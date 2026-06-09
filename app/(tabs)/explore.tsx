@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
+import { useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -8,7 +9,8 @@ import {
   Platform,
   ScrollView,
   StyleSheet,
-  TouchableOpacity
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 
@@ -16,7 +18,8 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { locationService } from '@/src/services/locationService';
-import { FriendLocation } from '@/src/types/api';
+import { taskService } from '@/src/services/taskService';
+import { FriendLocation, FriendTask, Task } from '@/src/types/api';
 import { supabase } from '@/utils/supabase';
 
 const BACKGROUND_LOCATION_TASK = 'background-location-task';
@@ -62,7 +65,7 @@ function getTimeSince(dateString: string): string {
   return `${days}d ago`;
 }
 
-const generateMapHTML = (latitude: number, longitude: number, isDark: boolean, friendLocations: FriendLocation[] = []) => {
+const generateMapHTML = (latitude: number, longitude: number, isDark: boolean, friendLocations: FriendLocation[] = [], tasks: Task[] = [], friendTasks: FriendTask[] = []) => {
   const bgColor = isDark ? '#1e1e1e' : '#ffffff';
   const textColor = isDark ? '#ffffff' : '#000000';
 
@@ -91,6 +94,63 @@ const generateMapHTML = (latitude: number, longitude: number, isDark: boolean, f
     `;
   }).join('\n');
 
+  const taskMarkersJS = tasks
+    .filter((t) => t.latitude != null && t.longitude != null && !t.completed)
+    .map((t) => {
+      const priorityColor = t.priority === 'high' ? '#ff6b6b' : t.priority === 'medium' ? '#ffa500' : '#4CAF50';
+      const escaped = t.title.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+      return `
+        L.circle([${t.latitude}, ${t.longitude}], {
+          radius: 5,
+          color: '${priorityColor}',
+          fillColor: '${priorityColor}',
+          fillOpacity: 0.15,
+          weight: 2,
+          dashArray: '6 4'
+        }).addTo(map);
+        L.marker([${t.latitude}, ${t.longitude}], {
+          icon: L.icon({
+            iconUrl: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjgiIGhlaWdodD0iNDAiIHZpZXdCb3g9IjAgMCAyOCA0MCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNMTQgMEM2LjI2OCAwIDAgNi4yNjggMCAxNGMwIDEwLjUgMTQgMjYgMTQgMjZTMjggMjQuNSAyOCAxNEMyOCA2LjI2OCAyMS43MzIgMCAxNCAwWiIgZmlsbD0iI0ZGNkI2QiIvPjxjaXJjbGUgY3g9IjE0IiBjeT0iMTQiIHI9IjciIGZpbGw9IiNmZmYiLz48cGF0aCBkPSJNMTEgMTRMMTMgMTZMMTcgMTIiIHN0cm9rZT0iI0ZGNkI2QiIgc3Ryb2tlLXdpZHRoPSIyIiBmaWxsPSJub25lIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz48L3N2Zz4=',
+            iconSize: [28, 40],
+            iconAnchor: [14, 40],
+            popupAnchor: [0, -40]
+          })
+        }).addTo(map).bindPopup('<div class="info"><strong>${escaped}</strong><br/><span style="color:${priorityColor};font-weight:600">${(t.priority || 'medium').charAt(0).toUpperCase() + (t.priority || 'medium').slice(1)} priority</span><br/><span style="font-size:12px;opacity:0.7">Be within 5m to complete</span></div>');
+      `;
+    }).join('\n');
+
+  const friendTaskMarkersJS = friendTasks
+    .filter((t) => t.latitude != null && t.longitude != null && !t.completed)
+    .map((t) => {
+      const escaped = t.title.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+      const owner = (t.profile?.username || '').replace(/'/g, "\\'");
+      return `
+        L.circle([${t.latitude}, ${t.longitude}], {
+          radius: 5,
+          color: '#007AFF',
+          fillColor: '#007AFF',
+          fillOpacity: 0.12,
+          weight: 2,
+          dashArray: '6 4'
+        }).addTo(map);
+        L.marker([${t.latitude}, ${t.longitude}], {
+          icon: L.icon({
+            iconUrl: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjgiIGhlaWdodD0iNDAiIHZpZXdCb3g9IjAgMCAyOCA0MCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNMTQgMEM2LjI2OCAwIDAgNi4yNjggMCAxNGMwIDEwLjUgMTQgMjYgMTQgMjZTMjggMjQuNSAyOCAxNEMyOCA2LjI2OCAyMS43MzIgMCAxNCAwWiIgZmlsbD0iIzAwN0FGRiIvPjxjaXJjbGUgY3g9IjE0IiBjeT0iMTQiIHI9IjciIGZpbGw9IiNmZmYiLz48cGF0aCBkPSJNMTEgMTRMMTMgMTZMMTcgMTIiIHN0cm9rZT0iIzAwN0FGRiIgc3Ryb2tlLXdpZHRoPSIyIiBmaWxsPSJub25lIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz48L3N2Zz4=',
+            iconSize: [28, 40],
+            iconAnchor: [14, 40],
+            popupAnchor: [0, -40]
+          })
+        }).addTo(map).bindPopup('<div class="info"><strong>${escaped}</strong><br/><span style="color:#007AFF;font-weight:600">${owner}\\'s task</span><br/><span style="font-size:12px;opacity:0.7">5m radius</span></div>');
+      `;
+    }).join('\n');
+
+  const tileUrl = isDark
+    ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+    : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+  const tileAttribution = isDark
+    ? '&copy; OpenStreetMap contributors &copy; CARTO'
+    : '&copy; OpenStreetMap contributors';
+
   return `
     <!DOCTYPE html>
     <html>
@@ -116,6 +176,13 @@ const generateMapHTML = (latitude: number, longitude: number, isDark: boolean, f
           line-height: 1.6;
         }
         ${isDark ? '.info { background-color: rgba(30, 30, 30, 0.95); color: #ffffff; }' : ''}
+        .leaflet-control-attribution {
+          background: ${isDark ? 'rgba(30,30,46,0.7) !important' : 'rgba(255,255,255,0.7) !important'};
+          color: ${isDark ? '#888 !important' : '#333 !important'};
+        }
+        .leaflet-control-attribution a {
+          color: ${isDark ? '#aaa !important' : '#0078A8 !important'};
+        }
       </style>
     </head>
     <body>
@@ -123,8 +190,8 @@ const generateMapHTML = (latitude: number, longitude: number, isDark: boolean, f
       <script>
         const map = L.map('map').setView([${latitude}, ${longitude}], 16);
 
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          attribution: '&copy; OpenStreetMap contributors',
+        L.tileLayer('${tileUrl}', {
+          attribution: '${tileAttribution}',
           maxZoom: 19
         }).addTo(map);
 
@@ -149,6 +216,10 @@ const generateMapHTML = (latitude: number, longitude: number, isDark: boolean, f
 
         ${friendMarkersJS}
 
+        ${taskMarkersJS}
+
+        ${friendTaskMarkersJS}
+
         window.updateLocation = function(lat, lng) {
           marker.setLatLng([lat, lng]);
           circle.setLatLng([lat, lng]);
@@ -168,16 +239,34 @@ export default function MapScreen() {
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
   const webViewRef = useRef<WebView>(null);
+  const { taskLat, taskLng, taskTitle } = useLocalSearchParams<{ taskLat?: string; taskLng?: string; taskTitle?: string }>();
   const [location, setLocation] = useState<Location.LocationObject | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [address, setAddress] = useState<string | null>(null);
   const [friendLocations, setFriendLocations] = useState<FriendLocation[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [friendTasks, setFriendTasks] = useState<FriendTask[]>([]);
   const [showFriendsList, setShowFriendsList] = useState(false);
+  const [selectedFriend, setSelectedFriend] = useState<FriendLocation | null>(null);
+  const [selectedFriendAddress, setSelectedFriendAddress] = useState<string | null>(null);
+  const [showTasksList, setShowTasksList] = useState(false);
+
+  const fetchTasks = async () => {
+    const { data } = await taskService.getTasks();
+    if (data && Array.isArray(data)) setTasks(data);
+  };
+
+  const fetchFriendTasks = async () => {
+    const { data } = await taskService.getFriendsTasks();
+    if (data && Array.isArray(data)) setFriendTasks(data);
+  };
 
   useEffect(() => {
     startTracking();
     fetchFriendLocations();
+    fetchTasks();
+    fetchFriendTasks();
 
     const channel = supabase
       .channel('friend-locations')
@@ -194,6 +283,18 @@ export default function MapScreen() {
       supabase.removeChannel(channel);
     };
   }, []);
+
+  useEffect(() => {
+    if (taskLat && taskLng && webViewRef.current) {
+      const lat = parseFloat(taskLat);
+      const lng = parseFloat(taskLng);
+      if (!isNaN(lat) && !isNaN(lng)) {
+        webViewRef.current.injectJavaScript(
+          `window.panTo(${lat}, ${lng});`
+        );
+      }
+    }
+  }, [taskLat, taskLng]);
 
   const fetchFriendLocations = async () => {
     const { data } = await locationService.getFriendsLocations();
@@ -281,15 +382,50 @@ export default function MapScreen() {
   };
 
   const handleOpenMaps = () => {
-    if (!location) return;
-    const { latitude, longitude } = location.coords;
+    if (selectedFriend) {
+      const { latitude: dLat, longitude: dLng } = selectedFriend;
+      const url = Platform.select({
+        ios: `maps://maps.apple.com/?daddr=${dLat},${dLng}&dirflg=d`,
+        android: `google.navigation:q=${dLat},${dLng}`,
+        web: `https://www.google.com/maps/dir/?api=1&destination=${dLat},${dLng}`,
+      });
+      if (url) Linking.openURL(url);
+    } else if (location) {
+      const { latitude, longitude } = location.coords;
+      const url = Platform.select({
+        ios: `maps://maps.apple.com/?ll=${latitude},${longitude}&q=My Location`,
+        android: `geo:${latitude},${longitude}?q=${latitude},${longitude}(My Location)`,
+        web: `https://maps.google.com/?q=${latitude},${longitude}`,
+      });
+      if (url) Linking.openURL(url);
+    }
+  };
+
+  const handleDirectionsToTask = (task: Task | FriendTask) => {
+    if (task.latitude == null || task.longitude == null) return;
     const url = Platform.select({
-      ios: `maps://maps.apple.com/?daddr=${latitude},${longitude}&q=My Location`,
-      android: `geo:${latitude},${longitude}?q=${latitude},${longitude}(My Location)`,
-      web: `https://maps.google.com/?q=${latitude},${longitude}`,
+      ios: `maps://maps.apple.com/?daddr=${task.latitude},${task.longitude}&dirflg=d`,
+      android: `google.navigation:q=${task.latitude},${task.longitude}`,
+      web: `https://www.google.com/maps/dir/?api=1&destination=${task.latitude},${task.longitude}`,
     });
     if (url) Linking.openURL(url);
   };
+
+  const handleGoToTask = (task: Task | FriendTask) => {
+    if (task.latitude == null || task.longitude == null) return;
+    if (webViewRef.current) {
+      webViewRef.current.injectJavaScript(
+        `window.panTo(${task.latitude}, ${task.longitude});`
+      );
+    }
+    setShowTasksList(false);
+  };
+
+  const selectedFriendTasks = selectedFriend
+    ? friendTasks.filter(t => t.user_id === selectedFriend.user_id)
+    : [];
+
+  const displayTasks = selectedFriend ? selectedFriendTasks : tasks;
 
   const handleRefresh = async () => {
     try {
@@ -313,13 +449,28 @@ export default function MapScreen() {
     await fetchFriendLocations();
   };
 
-  const handleGoToFriend = (friend: FriendLocation) => {
+  const handleGoToFriend = async (friend: FriendLocation) => {
     if (webViewRef.current) {
       webViewRef.current.injectJavaScript(
         `window.panTo(${friend.latitude}, ${friend.longitude});`
       );
     }
+    setSelectedFriend(friend);
+    setSelectedFriendAddress(null);
     setShowFriendsList(false);
+    try {
+      const results = await Location.reverseGeocodeAsync({
+        latitude: friend.latitude,
+        longitude: friend.longitude,
+      });
+      if (results.length > 0) {
+        const a = results[0];
+        const addr = `${a.street || ''} ${a.city || ''} ${a.region || ''}`.trim();
+        setSelectedFriendAddress(addr || `${friend.latitude.toFixed(4)}, ${friend.longitude.toFixed(4)}`);
+      }
+    } catch {
+      setSelectedFriendAddress(`${friend.latitude.toFixed(4)}, ${friend.longitude.toFixed(4)}`);
+    }
   };
 
   const handleGoToMe = () => {
@@ -328,11 +479,10 @@ export default function MapScreen() {
         `window.panTo(${location.coords.latitude}, ${location.coords.longitude});`
       );
     }
+    setSelectedFriend(null);
+    setSelectedFriendAddress(null);
     setShowFriendsList(false);
   };
-
-  const liveCount = friendLocations.filter(f => f.sharing_enabled).length;
-  const lastSeenCount = friendLocations.filter(f => !f.sharing_enabled).length;
 
   if (loading) {
     return (
@@ -375,14 +525,16 @@ export default function MapScreen() {
       {location && (
         <>
           <WebView
-            key={friendLocations.map(f => `${f.user_id}-${f.sharing_enabled}`).join(',')}
+            key={friendLocations.map(f => `${f.user_id}-${f.sharing_enabled}`).join(',') + '|' + tasks.filter(t => t.latitude != null).map(t => t.id).join(',') + '|' + friendTasks.filter(t => t.latitude != null).map(t => t.id).join(',')}
             ref={webViewRef}
             source={{
               html: generateMapHTML(
-                location.coords.latitude,
-                location.coords.longitude,
+                taskLat ? parseFloat(taskLat) : location.coords.latitude,
+                taskLng ? parseFloat(taskLng) : location.coords.longitude,
                 isDark,
-                friendLocations
+                friendLocations,
+                tasks,
+                friendTasks
               ),
             }}
             style={styles.map}
@@ -398,18 +550,20 @@ export default function MapScreen() {
             )}
           />
 
-          {/* Friends badge / dropdown toggle */}
-          {friendLocations.length > 0 && (
+          {/* Selected user header */}
+          <View style={styles.topBar}>
             <TouchableOpacity
-              style={styles.friendsBadge}
-              onPress={() => setShowFriendsList(!showFriendsList)}
+              style={styles.userSelector}
+              onPress={() => { setShowFriendsList(!showFriendsList); setShowTasksList(false); }}
               activeOpacity={0.8}
             >
-              <Ionicons name="people" size={16} color="#fff" />
-              <ThemedText style={styles.friendsBadgeText}>
-                {liveCount > 0 ? `${liveCount} live` : ''}
-                {liveCount > 0 && lastSeenCount > 0 ? ' · ' : ''}
-                {lastSeenCount > 0 ? `${lastSeenCount} last seen` : ''}
+              <Ionicons
+                name={selectedFriend ? 'person' : 'person-circle'}
+                size={18}
+                color={selectedFriend ? '#007AFF' : '#4CAF50'}
+              />
+              <ThemedText style={styles.userSelectorText} numberOfLines={1}>
+                {selectedFriend ? selectedFriend.profile.username : 'Me'}
               </ThemedText>
               <Ionicons
                 name={showFriendsList ? 'chevron-up' : 'chevron-down'}
@@ -417,7 +571,23 @@ export default function MapScreen() {
                 color="#fff"
               />
             </TouchableOpacity>
-          )}
+
+            <TouchableOpacity
+              style={styles.taskSelector}
+              onPress={() => { setShowTasksList(!showTasksList); setShowFriendsList(false); }}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="list" size={16} color="#fff" />
+              <ThemedText style={styles.taskSelectorText}>
+                Tasks ({displayTasks.filter(t => !t.completed).length})
+              </ThemedText>
+              <Ionicons
+                name={showTasksList ? 'chevron-up' : 'chevron-down'}
+                size={16}
+                color="#fff"
+              />
+            </TouchableOpacity>
+          </View>
 
           {/* Friends dropdown list */}
           {showFriendsList && (
@@ -425,17 +595,22 @@ export default function MapScreen() {
               <ScrollView style={styles.friendsScroll} showsVerticalScrollIndicator={false}>
                 {/* Me row */}
                 <TouchableOpacity
-                  style={[styles.friendItem, { borderBottomColor: isDark ? '#333' : '#eee' }]}
+                  style={[
+                    styles.friendItem,
+                    { borderBottomColor: isDark ? '#333' : '#eee' },
+                    !selectedFriend && { backgroundColor: isDark ? '#1a3a1a' : '#e8f5e9' },
+                  ]}
                   onPress={handleGoToMe}
                   activeOpacity={0.7}
                 >
-                  <ThemedView style={[styles.friendDot, { backgroundColor: '#4CAF50' }]} />
-                  <ThemedView style={styles.friendInfo}>
+                  <View style={[styles.friendDot, { backgroundColor: '#4CAF50' }]} />
+                  <View style={styles.friendInfo}>
                     <ThemedText style={styles.friendItemName}>Me</ThemedText>
                     <ThemedText style={styles.friendItemStatus}>
                       <ThemedText style={{ color: '#4CAF50', fontWeight: '600', fontSize: 12 }}>Live</ThemedText>
                     </ThemedText>
-                  </ThemedView>
+                  </View>
+                  {!selectedFriend && <Ionicons name="checkmark" size={18} color="#4CAF50" />}
                   <Ionicons name="navigate-outline" size={18} color="#4CAF50" />
                 </TouchableOpacity>
 
@@ -443,15 +618,20 @@ export default function MapScreen() {
                 {friendLocations.map((friend) => {
                   const isLive = friend.sharing_enabled;
                   const dotColor = isLive ? '#007AFF' : '#999';
+                  const isSelected = selectedFriend?.user_id === friend.user_id;
                   return (
                     <TouchableOpacity
                       key={friend.user_id}
-                      style={[styles.friendItem, { borderBottomColor: isDark ? '#333' : '#eee' }]}
+                      style={[
+                        styles.friendItem,
+                        { borderBottomColor: isDark ? '#333' : '#eee' },
+                        isSelected && { backgroundColor: isDark ? '#1a2a3a' : '#e3f2fd' },
+                      ]}
                       onPress={() => handleGoToFriend(friend)}
                       activeOpacity={0.7}
                     >
-                      <ThemedView style={[styles.friendDot, { backgroundColor: dotColor }]} />
-                      <ThemedView style={styles.friendInfo}>
+                      <View style={[styles.friendDot, { backgroundColor: dotColor }]} />
+                      <View style={styles.friendInfo}>
                         <ThemedText style={styles.friendItemName}>
                           {friend.profile.username}
                           {friend.profile.name ? ` (${friend.profile.name})` : ''}
@@ -464,7 +644,8 @@ export default function MapScreen() {
                             {' — '}{getTimeSince(friend.updated_at)}
                           </ThemedText>
                         </ThemedText>
-                      </ThemedView>
+                      </View>
+                      {isSelected && <Ionicons name="checkmark" size={18} color="#007AFF" />}
                       <Ionicons name="navigate-outline" size={18} color={dotColor} />
                     </TouchableOpacity>
                   );
@@ -473,49 +654,91 @@ export default function MapScreen() {
             </ThemedView>
           )}
 
-          <ThemedView style={styles.overlay}>
-            <ThemedView style={styles.infoPanel}>
-              {address && (
-                <ThemedView style={styles.addressRow}>
-                  <Ionicons name="location" size={18} color="#4CAF50" />
-                  <ThemedView style={styles.addressText}>
-                    <ThemedText style={styles.addressValue}>{address}</ThemedText>
-                  </ThemedView>
-                </ThemedView>
-              )}
-
-              <ThemedView style={styles.coordsContainer}>
-                <ThemedView style={styles.coordRow}>
-                  <ThemedText style={styles.coordLabel}>Lat:</ThemedText>
-                  <ThemedText style={styles.coordValue}>
-                    {location.coords.latitude.toFixed(6)}
-                  </ThemedText>
-                </ThemedView>
-                <ThemedView style={styles.coordRow}>
-                  <ThemedText style={styles.coordLabel}>Lng:</ThemedText>
-                  <ThemedText style={styles.coordValue}>
-                    {location.coords.longitude.toFixed(6)}
-                  </ThemedText>
-                </ThemedView>
-              </ThemedView>
-
-              <ThemedView style={styles.buttonContainer}>
-                <TouchableOpacity
-                  style={styles.button}
-                  onPress={handleRefresh}>
-                  <Ionicons name="refresh" size={18} color="#fff" />
-                  <ThemedText style={styles.buttonText}>Refresh</ThemedText>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.button}
-                  onPress={handleOpenMaps}>
-                  <Ionicons name="open-outline" size={18} color="#fff" />
-                  <ThemedText style={styles.buttonText}>Open Maps</ThemedText>
-                </TouchableOpacity>
-              </ThemedView>
+          {/* Tasks dropdown list */}
+          {showTasksList && (
+            <ThemedView style={[styles.tasksDropdown, { borderColor: isDark ? '#333' : '#ddd' }]}>
+              <ScrollView style={styles.friendsScroll} showsVerticalScrollIndicator={false}>
+                {displayTasks.filter(t => !t.completed).length === 0 ? (
+                  <View style={{ padding: 20, alignItems: 'center' }}>
+                    <ThemedText style={{ opacity: 0.5, fontSize: 14 }}>
+                      {selectedFriend ? `No active tasks for ${selectedFriend.profile.username}` : 'No active tasks'}
+                    </ThemedText>
+                  </View>
+                ) : (
+                  displayTasks.filter(t => !t.completed).map((task) => {
+                    const priorityColor = task.priority === 'high' ? '#ff6b6b' : task.priority === 'medium' ? '#ffa500' : '#4CAF50';
+                    const ownerName = 'profile' in task ? (task as FriendTask).profile?.username : undefined;
+                    return (
+                      <View
+                        key={task.id}
+                        style={[styles.taskItem, { borderBottomColor: isDark ? '#333' : '#eee' }]}
+                      >
+                        <TouchableOpacity
+                          style={styles.taskItemContent}
+                          onPress={() => handleGoToTask(task)}
+                          activeOpacity={0.7}
+                        >
+                          <View style={[styles.taskPriorityDot, { backgroundColor: priorityColor }]} />
+                          <View style={styles.taskItemInfo}>
+                            <ThemedText style={styles.taskItemTitle} numberOfLines={1}>
+                              {task.title}
+                            </ThemedText>
+                            <ThemedText style={styles.taskItemMeta}>
+                              {ownerName ? `${ownerName} · ` : ''}
+                              {(task.priority || 'medium').charAt(0).toUpperCase() + (task.priority || 'medium').slice(1)}
+                              {task.dueDate ? ` · ${task.dueDate}` : ''}
+                            </ThemedText>
+                          </View>
+                        </TouchableOpacity>
+                        {task.latitude != null && task.longitude != null && (
+                          <TouchableOpacity
+                            style={styles.directionsButton}
+                            onPress={() => handleDirectionsToTask(task)}
+                            activeOpacity={0.7}
+                          >
+                            <Ionicons name="navigate" size={18} color="#007AFF" />
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    );
+                  })
+                )}
+              </ScrollView>
             </ThemedView>
-          </ThemedView>
+          )}
+
+          {selectedFriend ? (
+            <View style={styles.addressPill}>
+              <Ionicons name="person" size={14} color="#007AFF" />
+              <ThemedText style={styles.addressPillText} numberOfLines={1}>
+                {selectedFriend.profile.username}
+                {selectedFriendAddress ? ` — ${selectedFriendAddress}` : ''}
+              </ThemedText>
+              <TouchableOpacity onPress={() => { setSelectedFriend(null); setSelectedFriendAddress(null); }}>
+                <Ionicons name="close-circle" size={18} color="rgba(255,255,255,0.6)" />
+              </TouchableOpacity>
+            </View>
+          ) : address ? (
+            <View style={styles.addressPill}>
+              <Ionicons name="location" size={14} color="#4CAF50" />
+              <ThemedText style={styles.addressPillText} numberOfLines={1}>{address}</ThemedText>
+            </View>
+          ) : null}
+
+          <View style={styles.fabGroup}>
+            <TouchableOpacity
+              style={styles.fabButton}
+              onPress={handleRefresh}
+              activeOpacity={0.8}>
+              <Ionicons name="refresh" size={20} color="#fff" />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.fabButton, selectedFriend ? { backgroundColor: '#007AFF' } : {}]}
+              onPress={handleOpenMaps}
+              activeOpacity={0.8}>
+              <Ionicons name="navigate" size={20} color="#fff" />
+            </TouchableOpacity>
+          </View>
         </>
       )}
     </ThemedView>
@@ -566,10 +789,16 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     fontSize: 16,
   },
-  friendsBadge: {
+  topBar: {
     position: 'absolute',
-    top: 56,
-    alignSelf: 'center',
+    top: 12,
+    left: 12,
+    right: 12,
+    flexDirection: 'row',
+    gap: 8,
+  },
+  userSelector: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
@@ -578,16 +807,31 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 20,
   },
-  friendsBadgeText: {
+  userSelectorText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '700',
+    flex: 1,
+  },
+  taskSelector: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 20,
+  },
+  taskSelectorText: {
     color: '#fff',
     fontSize: 13,
     fontWeight: '600',
   },
   friendsDropdown: {
     position: 'absolute',
-    top: 100,
-    left: 16,
-    right: 16,
+    top: 52,
+    left: 12,
+    right: 12,
     maxHeight: 280,
     borderRadius: 10,
     borderWidth: 1,
@@ -597,6 +841,55 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.2,
     shadowRadius: 8,
+  },
+  tasksDropdown: {
+    position: 'absolute',
+    top: 52,
+    left: 12,
+    right: 12,
+    maxHeight: 320,
+    borderRadius: 10,
+    borderWidth: 1,
+    overflow: 'hidden',
+    elevation: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+  },
+  taskItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderBottomWidth: 1,
+  },
+  taskItemContent: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    gap: 12,
+  },
+  taskPriorityDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  taskItemInfo: {
+    flex: 1,
+  },
+  taskItemTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  taskItemMeta: {
+    fontSize: 12,
+    opacity: 0.5,
+    marginTop: 2,
+  },
+  directionsButton: {
+    paddingHorizontal: 14,
+    paddingVertical: 12,
   },
   friendsScroll: {
     flex: 1,
@@ -625,76 +918,42 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 2,
   },
-  overlay: {
+  addressPill: {
     position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    paddingHorizontal: 16,
-    paddingBottom: 16,
-  },
-  infoPanel: {
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#4CAF50',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    gap: 10,
-  },
-  addressRow: {
+    bottom: 24,
+    left: 16,
+    right: 72,
     flexDirection: 'row',
-    gap: 10,
-    alignItems: 'flex-start',
-    paddingBottom: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-  },
-  addressText: {
-    flex: 1,
-  },
-  addressValue: {
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  coordsContainer: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  coordRow: {
-    flex: 1,
-    flexDirection: 'row',
+    alignItems: 'center',
     gap: 6,
-    alignItems: 'center',
-  },
-  coordLabel: {
-    fontSize: 12,
-    fontWeight: '600',
-    opacity: 0.6,
-    minWidth: 35,
-  },
-  coordValue: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  buttonContainer: {
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 4,
-  },
-  button: {
-    flex: 1,
-    flexDirection: 'row',
-    backgroundColor: '#4CAF50',
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
     paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
+    paddingVertical: 10,
+    borderRadius: 20,
   },
-  buttonText: {
+  addressPillText: {
     color: '#fff',
-    fontWeight: '700',
-    fontSize: 14,
+    fontSize: 13,
+    fontWeight: '500',
+    flex: 1,
+  },
+  fabGroup: {
+    position: 'absolute',
+    bottom: 24,
+    right: 16,
+    gap: 10,
+  },
+  fabButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#4CAF50',
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
   },
 });

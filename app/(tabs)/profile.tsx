@@ -16,6 +16,7 @@ import {
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useAppThemeControl } from '@/src/contexts/ThemeContext';
 import { useApi, useMutation } from '@/src/hooks/useApi';
 import { useAuth } from '@/src/hooks/useAuth';
 import { friendService } from '@/src/services/friendService';
@@ -32,6 +33,7 @@ export default function ProfileScreen() {
   const cardBg = isDark ? '#1e2022' : '#fff';
   const separatorColor = isDark ? '#2a2a2a' : '#f0f0f0';
 
+  const { setIsDark } = useAppThemeControl();
   const { user, logout } = useAuth();
   const { data: profile, loading: profileLoading, refetch: refetchProfile } = useApi(() =>
     profileService.getProfile()
@@ -59,6 +61,7 @@ export default function ProfileScreen() {
   });
 
   const handleToggleSetting = async (key: string, value: boolean) => {
+    if (key === 'dark_mode') setIsDark(value);
     const { error } = await updateSettings({ [key]: value });
     if (error) Alert.alert('Error', error.message);
   };
@@ -151,20 +154,20 @@ export default function ProfileScreen() {
     <ThemedView style={styles.container}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
         {/* Profile Header */}
-        <ThemedView style={styles.header}>
-          <ThemedView style={[styles.avatarCircle, { borderColor: '#4CAF50' }]}>
+        <View style={styles.header}>
+          <View style={[styles.avatarCircle, { borderColor: '#4CAF50' }]}>
             <Ionicons name="person" size={44} color="#4CAF50" />
-          </ThemedView>
+          </View>
           <ThemedText type="subtitle" style={styles.name}>
             {profile?.name || user?.name || 'User'}
           </ThemedText>
           <ThemedText style={styles.email}>{user?.email}</ThemedText>
-        </ThemedView>
+        </View>
 
         {/* Profile Info (read mode) */}
         {!editMode && (
-          <ThemedView lightColor={cardBg} darkColor={cardBg} style={[styles.card, { borderColor }]}>
-            <ThemedView style={styles.cardHeader}>
+          <View style={[styles.card, { borderColor, backgroundColor: cardBg }]}>
+            <View style={styles.cardHeader}>
               <ThemedText type="defaultSemiBold" style={styles.cardTitle}>Profile Information</ThemedText>
               <TouchableOpacity
                 onPress={() => {
@@ -178,36 +181,36 @@ export default function ProfileScreen() {
               >
                 <ThemedText style={styles.editLink}>Edit</ThemedText>
               </TouchableOpacity>
-            </ThemedView>
+            </View>
 
-            <ThemedView style={[styles.infoRow, { borderBottomColor: separatorColor }]}>
+            <View style={[styles.infoRow, { borderBottomColor: separatorColor }]}>
               <ThemedText style={styles.infoLabel}>Username</ThemedText>
               <ThemedText style={styles.infoValue}>{profile?.username || 'Not set'}</ThemedText>
-            </ThemedView>
+            </View>
 
-            <ThemedView style={[styles.infoRow, { borderBottomColor: separatorColor }]}>
+            <View style={[styles.infoRow, { borderBottomColor: separatorColor }]}>
               <ThemedText style={styles.infoLabel}>Bio</ThemedText>
               <ThemedText style={styles.infoValue}>{profile?.bio || 'No bio added'}</ThemedText>
-            </ThemedView>
+            </View>
 
-            <ThemedView style={styles.infoRow}>
+            <View style={styles.infoRow}>
               <ThemedText style={styles.infoLabel}>Member Since</ThemedText>
               <ThemedText style={styles.infoValue}>
                 {profile?.updated_at ? new Date(profile.updated_at).toLocaleDateString() : 'N/A'}
               </ThemedText>
-            </ThemedView>
-          </ThemedView>
+            </View>
+          </View>
         )}
 
         {/* Edit Mode */}
         {editMode && (
-          <ThemedView lightColor={cardBg} darkColor={cardBg} style={[styles.card, { borderColor }]}>
+          <View style={[styles.card, { borderColor, backgroundColor: cardBg }]}>
             <ThemedText type="defaultSemiBold" style={[styles.cardTitle, { marginBottom: 16 }]}>
               Edit Profile
             </ThemedText>
 
             <ThemedText style={styles.label}>Username</ThemedText>
-            <ThemedView style={[styles.inputContainer, { borderColor }]}>
+            <View style={[styles.inputContainer, { borderColor }]}>
               <Ionicons name="at" size={20} color="#888" />
               <TextInput
                 style={[styles.input, { color: textColor }]}
@@ -217,10 +220,10 @@ export default function ProfileScreen() {
                 placeholderTextColor={placeholderColor}
                 autoCapitalize="none"
               />
-            </ThemedView>
+            </View>
 
             <ThemedText style={styles.label}>Name</ThemedText>
-            <ThemedView style={[styles.inputContainer, { borderColor }]}>
+            <View style={[styles.inputContainer, { borderColor }]}>
               <Ionicons name="person-outline" size={20} color="#888" />
               <TextInput
                 style={[styles.input, { color: textColor }]}
@@ -229,10 +232,10 @@ export default function ProfileScreen() {
                 placeholder="Your name"
                 placeholderTextColor={placeholderColor}
               />
-            </ThemedView>
+            </View>
 
             <ThemedText style={styles.label}>Bio</ThemedText>
-            <ThemedView style={[styles.inputContainer, styles.inputContainerMultiline, { borderColor }]}>
+            <View style={[styles.inputContainer, styles.inputContainerMultiline, { borderColor }]}>
               <Ionicons name="document-text-outline" size={20} color="#888" style={{ marginTop: 2 }} />
               <TextInput
                 style={[styles.input, { color: textColor, minHeight: 60 }]}
@@ -242,9 +245,9 @@ export default function ProfileScreen() {
                 placeholderTextColor={placeholderColor}
                 multiline
               />
-            </ThemedView>
+            </View>
 
-            <ThemedView style={styles.buttonRow}>
+            <View style={styles.buttonRow}>
               <TouchableOpacity
                 style={[styles.secondaryButton, { borderColor }]}
                 onPress={() => setEditMode(false)}
@@ -265,25 +268,25 @@ export default function ProfileScreen() {
                   </>
                 )}
               </TouchableOpacity>
-            </ThemedView>
-          </ThemedView>
+            </View>
+          </View>
         )}
 
         {/* Pending Friend Requests */}
         {friendRequests && friendRequests.length > 0 && (
-          <ThemedView lightColor={cardBg} darkColor={cardBg} style={[styles.card, { borderColor }]}>
+          <View style={[styles.card, { borderColor, backgroundColor: cardBg }]}>
             <ThemedText type="defaultSemiBold" style={[styles.cardTitle, { marginBottom: 12 }]}>
               Friend Requests ({friendRequests.length})
             </ThemedText>
             {friendRequests.map((request) => (
-              <ThemedView key={request.id} style={[styles.friendRow, { borderBottomColor: separatorColor }]}>
-                <ThemedView style={{ flex: 1 }}>
+              <View key={request.id} style={[styles.friendRow, { borderBottomColor: separatorColor }]}>
+                <View style={{ flex: 1 }}>
                   <ThemedText style={styles.friendName}>{request.requester.username}</ThemedText>
                   {request.requester.name && (
                     <ThemedText style={styles.friendSubtext}>{request.requester.name}</ThemedText>
                   )}
-                </ThemedView>
-                <ThemedView style={styles.requestActions}>
+                </View>
+                <View style={styles.requestActions}>
                   <TouchableOpacity
                     style={styles.acceptButton}
                     onPress={() => handleRespondToRequest(request.id, 'accepted')}
@@ -296,105 +299,105 @@ export default function ProfileScreen() {
                   >
                     <Ionicons name="close" size={18} color="#fff" />
                   </TouchableOpacity>
-                </ThemedView>
-              </ThemedView>
+                </View>
+              </View>
             ))}
-          </ThemedView>
+          </View>
         )}
 
         {/* Friends */}
-        <ThemedView lightColor={cardBg} darkColor={cardBg} style={[styles.card, { borderColor }]}>
-          <ThemedView style={styles.cardHeader}>
+        <View style={[styles.card, { borderColor, backgroundColor: cardBg }]}>
+          <View style={styles.cardHeader}>
             <ThemedText type="defaultSemiBold" style={styles.cardTitle}>
               Friends ({friends?.length || 0})
             </ThemedText>
             <TouchableOpacity onPress={() => setShowAddFriend(true)}>
               <Ionicons name="person-add" size={22} color="#4CAF50" />
             </TouchableOpacity>
-          </ThemedView>
+          </View>
 
           {friendsLoading ? (
             <ActivityIndicator color="#4CAF50" style={{ paddingVertical: 16 }} />
           ) : friends && friends.length > 0 ? (
             friends.map((friend) => (
-              <ThemedView key={friend.friendship_id} style={[styles.friendRow, { borderBottomColor: separatorColor }]}>
-                <ThemedView style={{ flex: 1 }}>
+              <View key={friend.friendship_id} style={[styles.friendRow, { borderBottomColor: separatorColor }]}>
+                <View style={{ flex: 1 }}>
                   <ThemedText style={styles.friendName}>{friend.username}</ThemedText>
                   {friend.name && (
                     <ThemedText style={styles.friendSubtext}>{friend.name}</ThemedText>
                   )}
-                </ThemedView>
+                </View>
                 <TouchableOpacity onPress={() => handleRemoveFriend(friend.friendship_id)}>
                   <Ionicons name="close-circle" size={22} color="#ff6b6b" />
                 </TouchableOpacity>
-              </ThemedView>
+              </View>
             ))
           ) : (
             <ThemedText style={styles.emptyCardText}>No friends yet</ThemedText>
           )}
-        </ThemedView>
+        </View>
 
         {/* Settings */}
-        <ThemedView lightColor={cardBg} darkColor={cardBg} style={[styles.card, { borderColor }]}>
+        <View style={[styles.card, { borderColor, backgroundColor: cardBg }]}>
           <ThemedText type="defaultSemiBold" style={[styles.cardTitle, { marginBottom: 8 }]}>
             Preferences
           </ThemedText>
 
-          <ThemedView style={[styles.settingRow, { borderBottomColor: separatorColor }]}>
-            <ThemedView style={{ flex: 1 }}>
+          <View style={[styles.settingRow, { borderBottomColor: separatorColor }]}>
+            <View style={{ flex: 1 }}>
               <ThemedText style={styles.settingLabel}>Dark Mode</ThemedText>
-            </ThemedView>
+            </View>
             <Switch
-              value={!!settings?.dark_mode}
+              value={isDark}
               onValueChange={(v) => handleToggleSetting('dark_mode', v)}
-              trackColor={{ true: '#4CAF50' }}
+              trackColor={{ false: '#ccc', true: '#4CAF50' }} thumbColor="#fff"
             />
-          </ThemedView>
+          </View>
 
-          <ThemedView style={[styles.settingRow, { borderBottomColor: separatorColor }]}>
-            <ThemedView style={{ flex: 1 }}>
+          <View style={[styles.settingRow, { borderBottomColor: separatorColor }]}>
+            <View style={{ flex: 1 }}>
               <ThemedText style={styles.settingLabel}>Notifications</ThemedText>
-            </ThemedView>
+            </View>
             <Switch
               value={!!settings?.notifications_enabled}
               onValueChange={(v) => handleToggleSetting('notifications_enabled', v)}
-              trackColor={{ true: '#4CAF50' }}
+              trackColor={{ false: '#ccc', true: '#4CAF50' }} thumbColor="#fff"
             />
-          </ThemedView>
+          </View>
 
-          <ThemedView style={[styles.settingRow, { borderBottomColor: separatorColor }]}>
-            <ThemedView style={{ flex: 1 }}>
+          <View style={[styles.settingRow, { borderBottomColor: separatorColor }]}>
+            <View style={{ flex: 1 }}>
               <ThemedText style={styles.settingLabel}>Private Profile</ThemedText>
-            </ThemedView>
+            </View>
             <Switch
               value={!!settings?.private_profile}
               onValueChange={(v) => handleToggleSetting('private_profile', v)}
-              trackColor={{ true: '#4CAF50' }}
+              trackColor={{ false: '#ccc', true: '#4CAF50' }} thumbColor="#fff"
             />
-          </ThemedView>
+          </View>
 
-          <ThemedView style={styles.settingRow}>
-            <ThemedView style={{ flex: 1 }}>
+          <View style={styles.settingRow}>
+            <View style={{ flex: 1 }}>
               <ThemedText style={styles.settingLabel}>Share Location</ThemedText>
               <ThemedText style={styles.settingDescription}>
                 Let friends see your location on the map
               </ThemedText>
-            </ThemedView>
+            </View>
             <Switch
               value={!!settings?.share_location}
               onValueChange={(v) => handleToggleSetting('share_location', v)}
-              trackColor={{ true: '#4CAF50' }}
+              trackColor={{ false: '#ccc', true: '#4CAF50' }} thumbColor="#fff"
             />
-          </ThemedView>
-        </ThemedView>
+          </View>
+        </View>
 
         {/* Logout */}
-        <ThemedView lightColor={cardBg} darkColor={cardBg} style={[styles.card, { borderColor }]}>
+        <View style={[styles.card, { borderColor, backgroundColor: cardBg }]}>
           <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
             <Ionicons name="log-out-outline" size={20} color="#ff6b6b" />
             <ThemedText style={styles.logoutText}>Logout</ThemedText>
           </TouchableOpacity>
-        </ThemedView>
+        </View>
 
         <View style={{ height: 32 }} />
       </ScrollView>
@@ -402,16 +405,16 @@ export default function ProfileScreen() {
       {/* Add Friend Modal */}
       <Modal visible={showAddFriend} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
-          <ThemedView style={styles.modalContent}>
-            <ThemedView style={styles.modalHeader}>
+          <View style={[styles.modalContent, { backgroundColor: cardBg }]}>
+            <View style={styles.modalHeader}>
               <ThemedText type="subtitle">Add Friend</ThemedText>
               <TouchableOpacity onPress={() => setShowAddFriend(false)} style={styles.modalCloseButton}>
                 <Ionicons name="close" size={24} color="#888" />
               </TouchableOpacity>
-            </ThemedView>
+            </View>
 
             <ThemedText style={styles.label}>Username</ThemedText>
-            <ThemedView style={[styles.inputContainer, { borderColor }]}>
+            <View style={[styles.inputContainer, { borderColor }]}>
               <Ionicons name="person-outline" size={20} color="#888" />
               <TextInput
                 style={[styles.input, { color: textColor }]}
@@ -421,9 +424,9 @@ export default function ProfileScreen() {
                 onChangeText={setFriendUsername}
                 autoCapitalize="none"
               />
-            </ThemedView>
+            </View>
 
-            <ThemedView style={styles.buttonRow}>
+            <View style={styles.buttonRow}>
               <TouchableOpacity
                 style={[styles.secondaryButton, { borderColor }]}
                 onPress={() => setShowAddFriend(false)}
@@ -444,8 +447,8 @@ export default function ProfileScreen() {
                   </>
                 )}
               </TouchableOpacity>
-            </ThemedView>
-          </ThemedView>
+            </View>
+          </View>
         </View>
       </Modal>
     </ThemedView>

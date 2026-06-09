@@ -27,8 +27,20 @@ export interface Task {
   category: string
   dueDate: string | null
   completed: boolean
+  latitude: number | null
+  longitude: number | null
   created_at: string
   updated_at: string
+}
+
+export interface FriendTask extends Task {
+  user_id: string
+  profile: {
+    user_id: string
+    username: string
+    name: string | null
+    avatar_url: string | null
+  }
 }
 
 export interface Subtask {
@@ -115,10 +127,12 @@ export interface ApiResponse<T> {
 
 export interface CreateTaskInput {
   title: string
-  description: string
-  priority: 'low' | 'medium' | 'high'
-  category: string
+  description?: string
+  priority?: 'low' | 'medium' | 'high'
+  category_id?: string
   dueDate?: string
+  latitude: number
+  longitude: number
 }
 
 export interface UpdateTaskInput {
@@ -128,6 +142,10 @@ export interface UpdateTaskInput {
   category?: string
   dueDate?: string | null
   completed?: boolean
+  latitude?: number
+  longitude?: number
+  user_latitude?: number
+  user_longitude?: number
 }
 
 export interface CreateSubtaskInput {

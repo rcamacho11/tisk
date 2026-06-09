@@ -1,15 +1,20 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as Location from 'expo-location';
+import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   Modal,
+  Platform,
   ScrollView,
   StyleSheet,
   TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
+import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
+import { WebView } from 'react-native-webview';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -23,6 +28,109 @@ import { Category, CreateTaskInput, Subtask, Task, UpdateTaskInput } from '@/src
 type Priority = 'low' | 'medium' | 'high';
 
 const PRIORITIES: Priority[] = ['low', 'medium', 'high'];
+
+const generatePickerMapHTML = (latitude: number, longitude: number, isDark: boolean, pinLat?: number, pinLng?: number) => {
+  const initPinLat = pinLat ?? latitude;
+  const initPinLng = pinLng ?? longitude;
+  const bgColor = isDark ? '#1a1a2e' : '#ffffff';
+  const tileUrl = isDark
+    ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+    : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+  const tileAttribution = isDark
+    ? '&copy; OpenStreetMap contributors &copy; CARTO'
+    : '&copy; OpenStreetMap contributors';
+  const bannerBg = isDark ? 'rgba(30,30,46,0.88)' : 'rgba(255,255,255,0.92)';
+  const bannerText = isDark ? '#e0e0e0' : '#333';
+  const bannerBorder = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)';
+
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+      <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+      <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+      <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background-color: ${bgColor}; }
+        #map { height: 100vh; width: 100vw; }
+        .banner {
+          position: fixed;
+          bottom: 24px;
+          left: 50%;
+          transform: translateX(-50%);
+          z-index: 1000;
+          background: ${bannerBg};
+          color: ${bannerText};
+          padding: 10px 20px;
+          border-radius: 24px;
+          font-size: 14px;
+          font-weight: 600;
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+          box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+          border: 1px solid ${bannerBorder};
+          pointer-events: none;
+          white-space: nowrap;
+        }
+        .leaflet-control-attribution {
+          background: ${isDark ? 'rgba(30,30,46,0.7) !important' : 'rgba(255,255,255,0.7) !important'};
+          color: ${isDark ? '#888 !important' : '#333 !important'};
+        }
+        .leaflet-control-attribution a {
+          color: ${isDark ? '#aaa !important' : '#0078A8 !important'};
+        }
+      </style>
+    </head>
+    <body>
+      <div id="map"></div>
+      <div class="banner">Tap anywhere to drop a pin</div>
+      <script>
+        const map = L.map('map').setView([${latitude}, ${longitude}], 16);
+        L.tileLayer('${tileUrl}', {
+          attribution: '${tileAttribution}',
+          maxZoom: 19
+        }).addTo(map);
+
+        // User location marker
+        const userIcon = L.icon({
+          iconUrl: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSIxMiIgY3k9IjEyIiByPSI4IiBmaWxsPSIjNENBRjUwIiBmaWxsLW9wYWNpdHk9IjAuMjUiIHN0cm9rZT0iIzRDQUY1MCIgc3Ryb2tlLXdpZHRoPSIyIi8+PGNpcmNsZSBjeD0iMTIiIGN5PSIxMiIgcj0iMyIgZmlsbD0iIzRDQUY1MCIvPjwvc3ZnPg==',
+          iconSize: [24, 24],
+          iconAnchor: [12, 12],
+        });
+        L.marker([${latitude}, ${longitude}], { icon: userIcon, interactive: false }).addTo(map);
+
+        // Task pin marker
+        const pinIcon = L.icon({
+          iconUrl: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIiIGhlaWdodD0iNDgiIHZpZXdCb3g9IjAgMCAzMiA0OCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNMTYgMEM3LjE2NCAwIDAgNy4xNjQgMCAxNmMwIDEyIDE2IDMyIDE2IDMyUzMyIDI4IDMyIDE2QzMyIDcuMTY0IDI0LjgzNiAwIDE2IDBaIiBmaWxsPSIjRkY2QjZCIi8+PGNpcmNsZSBjeD0iMTYiIGN5PSIxNiIgcj0iNiIgZmlsbD0iI2ZmZiIvPjwvc3ZnPg==',
+          iconSize: [32, 48],
+          iconAnchor: [16, 48],
+        });
+
+        let marker = L.marker([${initPinLat}, ${initPinLng}], { icon: pinIcon }).addTo(map);
+
+        map.on('click', function(e) {
+          marker.setLatLng(e.latlng);
+          window.ReactNativeWebView.postMessage(JSON.stringify({ lat: e.latlng.lat, lng: e.latlng.lng }));
+          document.querySelector('.banner').style.display = 'none';
+        });
+
+        window.ReactNativeWebView.postMessage(JSON.stringify({ lat: ${initPinLat}, lng: ${initPinLng} }));
+      </script>
+    </body>
+    </html>
+  `;
+};
+
+function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371000;
+  const toRad = (deg: number) => deg * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
 
 export default function HomeScreen() {
   const colorScheme = useColorScheme();
@@ -55,7 +163,7 @@ export default function HomeScreen() {
   );
 
   const { mutate: completeTask } = useMutation(
-    (id: string) => taskService.completeTask(id)
+    ({ id, lat, lng }: { id: string; lat: number; lng: number }) => taskService.completeTask(id, lat, lng)
   );
 
   const { mutate: uncompleteTask } = useMutation(
@@ -103,6 +211,23 @@ export default function HomeScreen() {
   const [modalCategoryId, setModalCategoryId] = useState<string | null>(null);
   const [modalDueDate, setModalDueDate] = useState('');
   const [newCategoryName, setNewCategoryName] = useState('');
+  const [showMapPicker, setShowMapPicker] = useState(false);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [pickedLocation, setPickedLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number }>({ lat: 37.7749, lng: -122.4194 });
+  const [completingTaskId, setCompletingTaskId] = useState<string | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status === 'granted') {
+          const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+          setUserLocation({ lat: loc.coords.latitude, lng: loc.coords.longitude });
+        }
+      } catch {}
+    })();
+  }, []);
 
   const handleOpenModal = (task?: Task) => {
     if (task) {
@@ -112,6 +237,11 @@ export default function HomeScreen() {
       setModalPriority((task.priority as Priority) || 'medium');
       setModalCategoryId((task as any).category_id || null);
       setModalDueDate(task.dueDate || '');
+      setPickedLocation(
+        task.latitude != null && task.longitude != null
+          ? { lat: task.latitude, lng: task.longitude }
+          : null
+      );
     } else {
       setEditingTask(null);
       setModalInput('');
@@ -119,6 +249,7 @@ export default function HomeScreen() {
       setModalPriority('medium');
       setModalCategoryId(null);
       setModalDueDate('');
+      setPickedLocation(null);
     }
     setShowModal(true);
   };
@@ -138,6 +269,11 @@ export default function HomeScreen() {
       return;
     }
 
+    if (!editingTask && !pickedLocation) {
+      Alert.alert('Error', 'Please drop a pin on the map for this task');
+      return;
+    }
+
     if (editingTask) {
       const { error } = await updateTask({
         id: editingTask.id,
@@ -147,6 +283,7 @@ export default function HomeScreen() {
           priority: modalPriority,
           dueDate: modalDueDate || undefined,
           ...(modalCategoryId ? { category_id: modalCategoryId } : {}),
+          ...(pickedLocation ? { latitude: pickedLocation.lat, longitude: pickedLocation.lng } : {}),
         },
       });
 
@@ -158,11 +295,13 @@ export default function HomeScreen() {
     } else {
       const { error } = await createTask({
         title: modalInput.trim(),
-        description: modalDescription.trim(),
+        description: modalDescription.trim() || undefined,
         priority: modalPriority,
         dueDate: modalDueDate || undefined,
+        latitude: pickedLocation!.lat,
+        longitude: pickedLocation!.lng,
         ...(modalCategoryId ? { category_id: modalCategoryId } : {}),
-      } as any);
+      });
 
       if (error) {
         Alert.alert('Error', error.message);
@@ -179,8 +318,43 @@ export default function HomeScreen() {
     if (completed) {
       const { error } = await uncompleteTask(id);
       if (error) { Alert.alert('Error', error.message); return; }
+      refetchTasks();
+      return;
+    }
+
+    const task = (Array.isArray(tasks) ? tasks : []).find((t) => t.id === id);
+    if (task?.latitude != null && task?.longitude != null) {
+      setCompletingTaskId(id);
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert('Error', 'Location permission is required to complete tasks');
+          setCompletingTaskId(null);
+          return;
+        }
+        const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+        const distance = haversineDistance(
+          loc.coords.latitude, loc.coords.longitude,
+          task.latitude!, task.longitude!
+        );
+        if (distance > 5) {
+          Alert.alert(
+            'Too far away',
+            `You must be within 5 meters of the task location to complete it. You are ${Math.round(distance)}m away.`
+          );
+          setCompletingTaskId(null);
+          return;
+        }
+        const { error } = await completeTask({ id, lat: loc.coords.latitude, lng: loc.coords.longitude });
+        if (error) { Alert.alert('Error', error.message); setCompletingTaskId(null); return; }
+      } catch {
+        Alert.alert('Error', 'Failed to get your location');
+        setCompletingTaskId(null);
+        return;
+      }
+      setCompletingTaskId(null);
     } else {
-      const { error } = await completeTask(id);
+      const { error } = await completeTask({ id, lat: 0, lng: 0 });
       if (error) { Alert.alert('Error', error.message); return; }
     }
     refetchTasks();
@@ -237,6 +411,22 @@ export default function HomeScreen() {
       case 'medium': return '#ffa500';
       case 'low': return '#4CAF50';
       default: return '#888';
+    }
+  };
+
+  const formatDateDisplay = (dateStr: string) => {
+    const d = new Date(dateStr + 'T00:00:00');
+    if (isNaN(d.getTime())) return dateStr;
+    return `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}/${d.getFullYear()}`;
+  };
+
+  const handleDateChange = (_event: DateTimePickerEvent, selectedDate?: Date) => {
+    if (Platform.OS === 'android') setShowDatePicker(false);
+    if (selectedDate) {
+      const yyyy = selectedDate.getFullYear();
+      const mm = String(selectedDate.getMonth() + 1).padStart(2, '0');
+      const dd = String(selectedDate.getDate()).padStart(2, '0');
+      setModalDueDate(`${yyyy}-${mm}-${dd}`);
     }
   };
 
@@ -357,16 +547,22 @@ export default function HomeScreen() {
                 activeOpacity={0.7}
                 onPress={() => setExpandedTaskId(expandedTaskId === task.id ? null : task.id)}
               >
-                <TouchableOpacity
-                  style={styles.checkbox}
-                  onPress={() => handleToggleTask(task.id, task.completed)}
-                >
-                  <Ionicons
-                    name={task.completed ? 'checkbox' : 'square-outline'}
-                    size={24}
-                    color={task.completed ? '#4CAF50' : '#888'}
-                  />
-                </TouchableOpacity>
+                {completingTaskId === task.id ? (
+                  <View style={styles.checkbox}>
+                    <ActivityIndicator size="small" color="#4CAF50" />
+                  </View>
+                ) : (
+                  <TouchableOpacity
+                    style={styles.checkbox}
+                    onPress={() => handleToggleTask(task.id, task.completed)}
+                  >
+                    <Ionicons
+                      name={task.completed ? 'checkbox' : 'square-outline'}
+                      size={24}
+                      color={task.completed ? '#4CAF50' : '#888'}
+                    />
+                  </TouchableOpacity>
+                )}
 
                 <ThemedView style={styles.taskMainContent}>
                   <ThemedText
@@ -396,7 +592,7 @@ export default function HomeScreen() {
                             isOverdue(task.dueDate) && !task.completed && { color: '#ff6b6b', fontWeight: '700' },
                           ]}
                         >
-                          {task.dueDate}
+                          {formatDateDisplay(task.dueDate!)}
                         </ThemedText>
                       </ThemedView>
                     )}
@@ -416,6 +612,14 @@ export default function HomeScreen() {
                       <ThemedView style={[styles.metaTag, { backgroundColor: isDark ? '#1a2a3a' : '#e3f2fd' }]}>
                         <ThemedText style={[styles.metaTagText, { color: '#1976d2' }]}>
                           {categories.find((c) => c.id === (task as any).category_id)?.name ?? ''}
+                        </ThemedText>
+                      </ThemedView>
+                    )}
+                    {task.latitude != null && task.longitude != null && (
+                      <ThemedView style={[styles.metaTag, { backgroundColor: isDark ? '#2a1a2a' : '#fce4ec' }]}>
+                        <Ionicons name="location" size={12} color="#e91e63" />
+                        <ThemedText style={[styles.metaTagText, { color: '#e91e63' }]}>
+                          Pin
                         </ThemedText>
                       </ThemedView>
                     )}
@@ -460,6 +664,22 @@ export default function HomeScreen() {
                     </TouchableOpacity>
                   </ThemedView>
 
+                  {task.latitude != null && task.longitude != null && (
+                    <TouchableOpacity
+                      onPress={() => {
+                        setExpandedTaskId(null);
+                        router.navigate({
+                          pathname: '/(tabs)/explore',
+                          params: { taskLat: task.latitude, taskLng: task.longitude, taskTitle: task.title },
+                        });
+                      }}
+                      style={styles.viewOnMapButton}
+                    >
+                      <Ionicons name="map-outline" size={18} color="#fff" />
+                      <ThemedText style={styles.viewOnMapButtonText}>View on Map</ThemedText>
+                    </TouchableOpacity>
+                  )}
+
                   <TouchableOpacity
                     onPress={() => handleDeleteTask(task.id)}
                     style={styles.deleteButton}
@@ -480,135 +700,218 @@ export default function HomeScreen() {
       </TouchableOpacity>
 
       {/* Add/Edit Task Modal */}
-      <Modal visible={showModal} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <ThemedView style={styles.modalContent}>
-            <ThemedView style={styles.modalHeader}>
-              <ThemedText type="subtitle">{editingTask ? 'Edit Task' : 'New Task'}</ThemedText>
-              <TouchableOpacity onPress={() => setShowModal(false)} style={styles.modalCloseButton}>
-                <Ionicons name="close" size={24} color="#888" />
+      <Modal visible={showModal} animationType="slide">
+        <ThemedView style={styles.modalContainer}>
+          <ThemedView style={styles.modalHeader}>
+            <TouchableOpacity onPress={() => setShowModal(false)}>
+              <Ionicons name="close" size={26} color="#888" />
+            </TouchableOpacity>
+            <ThemedText style={styles.modalTitle}>{editingTask ? 'Edit Task' : 'New Task'}</ThemedText>
+            <TouchableOpacity onPress={handleSaveTask}>
+              <ThemedText style={styles.modalSaveText}>
+                {editingTask ? 'Save' : 'Create'}
+              </ThemedText>
+            </TouchableOpacity>
+          </ThemedView>
+
+          <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.modalBody} showsVerticalScrollIndicator={false}>
+            {/* Title */}
+            <ThemedText style={styles.label}>Title</ThemedText>
+            <ThemedView style={[styles.inputContainer, { borderColor }]}>
+              <Ionicons name="document-text-outline" size={20} color="#888" />
+              <TextInput
+                style={[styles.input, { color: textColor }]}
+                placeholder="Task title"
+                placeholderTextColor={placeholderColor}
+                value={modalInput}
+                onChangeText={setModalInput}
+              />
+            </ThemedView>
+
+            {/* Description */}
+            <ThemedText style={styles.label}>Description</ThemedText>
+            <ThemedView style={[styles.inputContainer, styles.inputContainerMultiline, { borderColor }]}>
+              <Ionicons name="text-outline" size={20} color="#888" style={{ marginTop: 2 }} />
+              <TextInput
+                style={[styles.input, { color: textColor, minHeight: 60 }]}
+                placeholder="Add details..."
+                placeholderTextColor={placeholderColor}
+                value={modalDescription}
+                onChangeText={setModalDescription}
+                multiline
+              />
+            </ThemedView>
+
+            {/* Due Date */}
+            <ThemedText style={styles.label}>Due Date</ThemedText>
+            <TouchableOpacity
+              style={[styles.inputContainer, { borderColor }]}
+              onPress={() => setShowDatePicker(true)}
+            >
+              <Ionicons name="calendar-outline" size={20} color="#888" />
+              <ThemedText style={[styles.input, { color: modalDueDate ? textColor : placeholderColor }]}>
+                {modalDueDate ? formatDateDisplay(modalDueDate) : 'MM/DD/YYYY'}
+              </ThemedText>
+              {modalDueDate ? (
+                <TouchableOpacity onPress={() => setModalDueDate('')} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                  <Ionicons name="close-circle" size={20} color="#888" />
+                </TouchableOpacity>
+              ) : null}
+            </TouchableOpacity>
+            {showDatePicker && (
+              <View>
+                <DateTimePicker
+                  value={modalDueDate ? new Date(modalDueDate + 'T00:00:00') : new Date()}
+                  mode="date"
+                  display={Platform.OS === 'ios' ? 'inline' : 'default'}
+                  onChange={handleDateChange}
+                  themeVariant={isDark ? 'dark' : 'light'}
+                />
+                {Platform.OS === 'ios' && (
+                  <TouchableOpacity
+                    style={styles.datePickerDoneButton}
+                    onPress={() => setShowDatePicker(false)}
+                  >
+                    <ThemedText style={{ color: '#4CAF50', fontWeight: '700', fontSize: 16 }}>Done</ThemedText>
+                  </TouchableOpacity>
+                )}
+              </View>
+            )}
+
+            {/* Priority */}
+            <ThemedText style={styles.label}>Priority</ThemedText>
+            <ThemedView style={styles.priorityRow}>
+              {PRIORITIES.map((p) => (
+                <TouchableOpacity
+                  key={p}
+                  style={[
+                    styles.priorityButton,
+                    {
+                      borderColor: getPriorityColor(p),
+                      backgroundColor: modalPriority === p ? getPriorityColor(p) : 'transparent',
+                    },
+                  ]}
+                  onPress={() => setModalPriority(p)}
+                >
+                  <ThemedText
+                    style={{
+                      fontWeight: '600',
+                      fontSize: 13,
+                      color: modalPriority === p ? '#fff' : getPriorityColor(p),
+                    }}
+                  >
+                    {p.charAt(0).toUpperCase() + p.slice(1)}
+                  </ThemedText>
+                </TouchableOpacity>
+              ))}
+            </ThemedView>
+
+            {/* Category */}
+            <ThemedText style={styles.label}>Category</ThemedText>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}>
+              <TouchableOpacity
+                style={[styles.chipButton, { borderColor }, !modalCategoryId && styles.chipButtonActive]}
+                onPress={() => setModalCategoryId(null)}
+              >
+                <ThemedText style={[styles.chipButtonText, !modalCategoryId && styles.chipButtonTextActive]}>
+                  None
+                </ThemedText>
+              </TouchableOpacity>
+              {categories.map((cat) => (
+                <TouchableOpacity
+                  key={cat.id}
+                  style={[styles.chipButton, { borderColor }, modalCategoryId === cat.id && styles.chipButtonActive]}
+                  onPress={() => setModalCategoryId(cat.id)}
+                >
+                  <ThemedText style={[styles.chipButtonText, modalCategoryId === cat.id && styles.chipButtonTextActive]}>
+                    {cat.name}
+                  </ThemedText>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+
+            <ThemedView style={[styles.inputContainer, { borderColor, marginBottom: 20 }]}>
+              <Ionicons name="pricetag-outline" size={20} color="#888" />
+              <TextInput
+                style={[styles.input, { color: textColor }]}
+                placeholder="New category name..."
+                placeholderTextColor={placeholderColor}
+                value={newCategoryName}
+                onChangeText={setNewCategoryName}
+              />
+              <TouchableOpacity onPress={handleCreateCategory}>
+                <Ionicons name="add-circle" size={24} color="#4CAF50" />
               </TouchableOpacity>
             </ThemedView>
 
-            <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
-              {/* Title */}
-              <ThemedText style={styles.label}>Title</ThemedText>
-              <ThemedView style={[styles.inputContainer, { borderColor }]}>
-                <Ionicons name="document-text-outline" size={20} color="#888" />
-                <TextInput
-                  style={[styles.input, { color: textColor }]}
-                  placeholder="Task title"
-                  placeholderTextColor={placeholderColor}
-                  value={modalInput}
-                  onChangeText={setModalInput}
-                />
-              </ThemedView>
+            {/* Location Pin */}
+            <ThemedText style={styles.label}>Location Pin</ThemedText>
+            <TouchableOpacity
+              style={[
+                styles.locationPickerButton,
+                { borderColor: pickedLocation ? '#4CAF50' : borderColor },
+              ]}
+              onPress={() => setShowMapPicker(true)}
+            >
+              <Ionicons
+                name={pickedLocation ? 'location' : 'location-outline'}
+                size={20}
+                color={pickedLocation ? '#4CAF50' : '#888'}
+              />
+              <ThemedText style={{ flex: 1, fontSize: 14, color: pickedLocation ? textColor : placeholderColor }}>
+                {pickedLocation
+                  ? `${pickedLocation.lat.toFixed(6)}, ${pickedLocation.lng.toFixed(6)}`
+                  : 'Tap to drop a pin on the map'}
+              </ThemedText>
+              <Ionicons name="chevron-forward" size={18} color="#888" />
+            </TouchableOpacity>
 
-              {/* Description */}
-              <ThemedText style={styles.label}>Description</ThemedText>
-              <ThemedView style={[styles.inputContainer, styles.inputContainerMultiline, { borderColor }]}>
-                <Ionicons name="text-outline" size={20} color="#888" style={{ marginTop: 2 }} />
-                <TextInput
-                  style={[styles.input, { color: textColor, minHeight: 60 }]}
-                  placeholder="Add details..."
-                  placeholderTextColor={placeholderColor}
-                  value={modalDescription}
-                  onChangeText={setModalDescription}
-                  multiline
-                />
-              </ThemedView>
+            {/* Save Button */}
+            <TouchableOpacity style={styles.saveButton} onPress={handleSaveTask}>
+              <Ionicons name={editingTask ? 'checkmark-circle' : 'add-circle'} size={20} color="#fff" />
+              <ThemedText style={styles.saveButtonText}>
+                {editingTask ? 'Save Changes' : 'Create Task'}
+              </ThemedText>
+            </TouchableOpacity>
 
-              {/* Due Date */}
-              <ThemedText style={styles.label}>Due Date (YYYY-MM-DD)</ThemedText>
-              <ThemedView style={[styles.inputContainer, { borderColor }]}>
-                <Ionicons name="calendar-outline" size={20} color="#888" />
-                <TextInput
-                  style={[styles.input, { color: textColor }]}
-                  placeholder="2024-12-25"
-                  placeholderTextColor={placeholderColor}
-                  value={modalDueDate}
-                  onChangeText={setModalDueDate}
-                />
-              </ThemedView>
+            <View style={{ height: 40 }} />
+          </ScrollView>
+        </ThemedView>
+      </Modal>
 
-              {/* Priority */}
-              <ThemedText style={styles.label}>Priority</ThemedText>
-              <ThemedView style={styles.priorityRow}>
-                {PRIORITIES.map((p) => (
-                  <TouchableOpacity
-                    key={p}
-                    style={[
-                      styles.priorityButton,
-                      {
-                        borderColor: getPriorityColor(p),
-                        backgroundColor: modalPriority === p ? getPriorityColor(p) : 'transparent',
-                      },
-                    ]}
-                    onPress={() => setModalPriority(p)}
-                  >
-                    <ThemedText
-                      style={{
-                        fontWeight: '600',
-                        fontSize: 13,
-                        color: modalPriority === p ? '#fff' : getPriorityColor(p),
-                      }}
-                    >
-                      {p.charAt(0).toUpperCase() + p.slice(1)}
-                    </ThemedText>
-                  </TouchableOpacity>
-                ))}
-              </ThemedView>
-
-              {/* Category */}
-              <ThemedText style={styles.label}>Category</ThemedText>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}>
-                <TouchableOpacity
-                  style={[styles.chipButton, { borderColor }, !modalCategoryId && styles.chipButtonActive]}
-                  onPress={() => setModalCategoryId(null)}
-                >
-                  <ThemedText style={[styles.chipButtonText, !modalCategoryId && styles.chipButtonTextActive]}>
-                    None
-                  </ThemedText>
-                </TouchableOpacity>
-                {categories.map((cat) => (
-                  <TouchableOpacity
-                    key={cat.id}
-                    style={[styles.chipButton, { borderColor }, modalCategoryId === cat.id && styles.chipButtonActive]}
-                    onPress={() => setModalCategoryId(cat.id)}
-                  >
-                    <ThemedText style={[styles.chipButtonText, modalCategoryId === cat.id && styles.chipButtonTextActive]}>
-                      {cat.name}
-                    </ThemedText>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-
-              <ThemedView style={[styles.inputContainer, { borderColor, marginBottom: 20 }]}>
-                <Ionicons name="pricetag-outline" size={20} color="#888" />
-                <TextInput
-                  style={[styles.input, { color: textColor }]}
-                  placeholder="New category name..."
-                  placeholderTextColor={placeholderColor}
-                  value={newCategoryName}
-                  onChangeText={setNewCategoryName}
-                />
-                <TouchableOpacity onPress={handleCreateCategory}>
-                  <Ionicons name="add-circle" size={24} color="#4CAF50" />
-                </TouchableOpacity>
-              </ThemedView>
-
-              {/* Save Button */}
-              <TouchableOpacity style={styles.saveButton} onPress={handleSaveTask}>
-                <Ionicons name={editingTask ? 'checkmark-circle' : 'add-circle'} size={20} color="#fff" />
-                <ThemedText style={styles.saveButtonText}>
-                  {editingTask ? 'Save Changes' : 'Create Task'}
-                </ThemedText>
-              </TouchableOpacity>
-
-              <View style={{ height: 30 }} />
-            </ScrollView>
+      {/* Map Picker Modal */}
+      <Modal visible={showMapPicker} animationType="slide">
+        <ThemedView style={{ flex: 1 }}>
+          <ThemedView style={styles.mapPickerHeader}>
+            <TouchableOpacity onPress={() => setShowMapPicker(false)}>
+              <ThemedText style={{ fontSize: 16, color: '#888' }}>Cancel</ThemedText>
+            </TouchableOpacity>
+            <ThemedText style={{ fontSize: 16, fontWeight: '700' }}>Drop a Pin</ThemedText>
+            <TouchableOpacity onPress={() => setShowMapPicker(false)}>
+              <ThemedText style={{ fontSize: 16, color: '#4CAF50', fontWeight: '700' }}>Done</ThemedText>
+            </TouchableOpacity>
           </ThemedView>
-        </View>
+          <WebView
+            source={{
+              html: generatePickerMapHTML(
+                userLocation.lat,
+                userLocation.lng,
+                isDark,
+                pickedLocation?.lat,
+                pickedLocation?.lng
+              ),
+            }}
+            style={{ flex: 1 }}
+            onMessage={(event) => {
+              try {
+                const data = JSON.parse(event.nativeEvent.data);
+                if (typeof data.lat === 'number' && typeof data.lng === 'number') {
+                  setPickedLocation({ lat: data.lat, lng: data.lng });
+                }
+              } catch {}
+            }}
+          />
+        </ThemedView>
       </Modal>
     </ThemedView>
   );
@@ -789,6 +1092,21 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 14,
   },
+  viewOnMapButton: {
+    flexDirection: 'row',
+    backgroundColor: '#007AFF',
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  viewOnMapButtonText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 14,
+  },
   deleteButton: {
     flexDirection: 'row',
     backgroundColor: '#ff6b6b',
@@ -820,33 +1138,31 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 4,
   },
-  modalOverlay: {
+  modalContainer: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.4)',
-    justifyContent: 'flex-end',
-  },
-  modalContent: {
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    maxHeight: '85%',
   },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 20,
+    paddingHorizontal: 20,
+    paddingTop: 56,
+    paddingBottom: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(128,128,128,0.2)',
   },
-  modalCloseButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    justifyContent: 'center',
-    alignItems: 'center',
+  modalTitle: {
+    fontSize: 17,
+    fontWeight: '700',
   },
-  modalScroll: {
-    flex: 1,
+  modalSaveText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#4CAF50',
+  },
+  modalBody: {
+    paddingHorizontal: 20,
+    paddingTop: 20,
   },
   label: {
     fontSize: 14,
@@ -895,5 +1211,30 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '700',
     fontSize: 16,
+  },
+  datePickerDoneButton: {
+    alignItems: 'center',
+    paddingVertical: 10,
+    marginBottom: 8,
+  },
+  locationPickerButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 14,
+    gap: 10,
+    marginBottom: 20,
+  },
+  mapPickerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingTop: 56,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(128,128,128,0.2)',
   },
 });

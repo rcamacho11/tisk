@@ -3,9 +3,11 @@ import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import 'react-native-reanimated';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { AuthProvider } from '@/src/contexts/AuthContext';
+import { AppThemeProvider } from '@/src/contexts/ThemeContext';
 import { useAuth } from '@/src/hooks/useAuth';
 
 export const unstable_settings = {
@@ -32,20 +34,33 @@ function AuthGuard() {
   return null;
 }
 
-export default function RootLayout() {
+function RootLayoutInner() {
   const colorScheme = useColorScheme();
+  const bgColor = colorScheme === 'dark' ? DarkTheme.colors.background : DefaultTheme.colors.background;
 
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       <AuthProvider>
         <AuthGuard />
-        <Stack>
-          <Stack.Screen name="login" options={{ headerShown: false }} />
-          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-          <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
-        </Stack>
+        <SafeAreaView style={{ flex: 1, backgroundColor: bgColor }} edges={['top']}>
+          <Stack>
+            <Stack.Screen name="login" options={{ headerShown: false }} />
+            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+            <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
+          </Stack>
+        </SafeAreaView>
         <StatusBar style="auto" />
       </AuthProvider>
     </ThemeProvider>
+  );
+}
+
+export default function RootLayout() {
+  return (
+    <SafeAreaProvider>
+      <AppThemeProvider>
+        <RootLayoutInner />
+      </AppThemeProvider>
+    </SafeAreaProvider>
   );
 }

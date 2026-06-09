@@ -26,8 +26,8 @@ export default function TabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Home',
-          tabBarIcon: ({ color }) => <Ionicons size={26} name="home-outline" color={color} />,
+          title: 'Tasks',
+          tabBarIcon: ({ color }) => <Ionicons size={26} name="checkmark-circle-outline" color={color} />,
         }}
       />
       <Tabs.Screen
