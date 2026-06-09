@@ -17,6 +17,8 @@ Specialist docs live in `docs/` — read the relevant one before touching that a
 | Frontend / Expo Router / screens | [`docs/frontend.md`](docs/frontend.md) |
 | Styling / theming / components | [`docs/styling.md`](docs/styling.md) |
 | Data models / TypeScript types | [`docs/data-models.md`](docs/data-models.md) |
+| Building APK / IPA / release | [`docs/building.md`](docs/building.md) |
+| Known bugs & resolutions | [`docs/known-bugs.md`](docs/known-bugs.md) |
 
 ## Commands
 
