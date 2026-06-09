@@ -251,6 +251,12 @@ export default function MapScreen() {
   const [selectedFriend, setSelectedFriend] = useState<FriendLocation | null>(null);
   const [selectedFriendAddress, setSelectedFriendAddress] = useState<string | null>(null);
   const [showTasksList, setShowTasksList] = useState(false);
+  const lastSendRef = useRef<number>(0);
+  const lastCoordsRef = useRef<{ lat: number; lng: number } | null>(null);
+
+  const MOVING_INTERVAL = 45 * 1000;
+  const STATIONARY_INTERVAL = 5 * 60 * 1000;
+  const MOVING_SPEED_THRESHOLD = 0.5; // m/s — above this counts as moving
 
   const fetchTasks = async () => {
     const { data } = await taskService.getTasks();
@@ -344,10 +350,10 @@ export default function MapScreen() {
         const isRunning = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK).catch(() => false);
         if (!isRunning) {
           await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
-            accuracy: Location.Accuracy.Balanced,
-            timeInterval: 5 * 60 * 1000,
-            distanceInterval: 50,
-            deferredUpdatesInterval: 5 * 60 * 1000,
+            accuracy: Location.Accuracy.Low,
+            timeInterval: 15 * 60 * 1000,
+            distanceInterval: 100,
+            deferredUpdatesInterval: 15 * 60 * 1000,
             showsBackgroundLocationIndicator: true,
             foregroundService: {
               notificationTitle: 'Tisk',
@@ -361,8 +367,8 @@ export default function MapScreen() {
       const subscription = await Location.watchPositionAsync(
         {
           accuracy: Location.Accuracy.High,
-          timeInterval: 10000,
-          distanceInterval: 10,
+          timeInterval: 5000,
+          distanceInterval: 5,
         },
         async (newLocation) => {
           setLocation(newLocation);
@@ -370,6 +376,26 @@ export default function MapScreen() {
             webViewRef.current.injectJavaScript(
               `window.updateLocation(${newLocation.coords.latitude}, ${newLocation.coords.longitude});`
             );
+          }
+
+          const speed = newLocation.coords.speed ?? 0;
+          const isMoving = speed > MOVING_SPEED_THRESHOLD;
+          const interval = isMoving ? MOVING_INTERVAL : STATIONARY_INTERVAL;
+          const now = Date.now();
+
+          if (now - lastSendRef.current >= interval) {
+            lastSendRef.current = now;
+            lastCoordsRef.current = {
+              lat: newLocation.coords.latitude,
+              lng: newLocation.coords.longitude,
+            };
+            await locationService.sendLocation({
+              latitude: newLocation.coords.latitude,
+              longitude: newLocation.coords.longitude,
+              address: '',
+              accuracy: newLocation.coords.accuracy ?? 0,
+              timestamp: new Date(newLocation.timestamp).toISOString(),
+            });
           }
         }
       );
