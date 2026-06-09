@@ -452,42 +452,41 @@ export default function HomeScreen() {
 
   return (
     <ThemedView style={styles.container}>
-      {/* Stats */}
-      <ThemedView style={styles.statsRow}>
-        <ThemedText style={styles.statsText}>
-          {completedCount} of {totalCount} completed
-        </ThemedText>
-        {totalCount > 0 && (
-          <ThemedView style={[styles.progressBarBg, { backgroundColor: chipBg }]}>
-            <View style={[styles.progressBarFill, { width: `${progressPercent}%` }]} />
-          </ThemedView>
-        )}
+      {/* Filter Counters */}
+      <ThemedView style={styles.counterRow}>
+        {([
+          { key: 'all' as const, label: 'All', count: totalCount },
+          { key: 'active' as const, label: 'Active', count: totalCount - completedCount },
+          { key: 'completed' as const, label: 'Completed', count: completedCount },
+        ]).map(({ key, label, count }) => (
+          <TouchableOpacity
+            key={key}
+            style={[
+              styles.counterCard,
+              { borderColor },
+              filterBy === key && styles.counterCardActive,
+            ]}
+            onPress={() => setFilterBy(key)}
+          >
+            <ThemedText style={[styles.counterCount, filterBy === key && styles.counterTextActive]}>
+              {count}
+            </ThemedText>
+            <ThemedText style={[styles.counterLabel, filterBy === key && styles.counterTextActive]}>
+              {label}
+            </ThemedText>
+          </TouchableOpacity>
+        ))}
       </ThemedView>
 
-      {/* Filter & Sort Controls */}
+      {/* Progress Bar */}
+      {totalCount > 0 && (
+        <ThemedView style={[styles.progressBarBg, { backgroundColor: chipBg }]}>
+          <View style={[styles.progressBarFill, { width: `${progressPercent}%` }]} />
+        </ThemedView>
+      )}
+
+      {/* Sort Controls */}
       <ThemedView style={styles.controlsContainer}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 10 }}>
-          {(['all', 'active', 'completed'] as const).map((filter) => (
-            <TouchableOpacity
-              key={filter}
-              style={[
-                styles.chipButton,
-                { borderColor },
-                filterBy === filter && styles.chipButtonActive,
-              ]}
-              onPress={() => setFilterBy(filter)}
-            >
-              <ThemedText
-                style={[
-                  styles.chipButtonText,
-                  filterBy === filter && styles.chipButtonTextActive,
-                ]}
-              >
-                {filter.charAt(0).toUpperCase() + filter.slice(1)}
-              </ThemedText>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
           {(['date', 'priority', 'category'] as const).map((sort) => (
@@ -923,17 +922,39 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 16,
   },
-  statsRow: {
+  counterRow: {
+    flexDirection: 'row',
+    gap: 10,
     marginBottom: 12,
   },
-  statsText: {
-    fontSize: 14,
+  counterCard: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  counterCardActive: {
+    backgroundColor: '#4CAF50',
+    borderColor: '#4CAF50',
+  },
+  counterCount: {
+    fontSize: 22,
+    fontWeight: '700',
+  },
+  counterLabel: {
+    fontSize: 12,
     opacity: 0.6,
+    marginTop: 2,
+  },
+  counterTextActive: {
+    color: '#fff',
+    opacity: 1,
   },
   progressBarBg: {
     height: 6,
     borderRadius: 3,
-    marginTop: 10,
+    marginBottom: 12,
     overflow: 'hidden',
   },
   progressBarFill: {
