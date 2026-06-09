@@ -10,6 +10,18 @@ interface TaskInsert {
   category_id?: string
   due_date?: string
   completed?: boolean
+  latitude?: number
+  longitude?: number
+}
+
+function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371000
+  const toRad = (deg: number) => deg * Math.PI / 180
+  const dLat = toRad(lat2 - lat1)
+  const dLon = toRad(lon2 - lon1)
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
 }
 
 interface SubtaskInsert {
@@ -198,9 +210,61 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ success: true, tasks: data })
     }
 
+    if (endpoint === "/tasks/friends" && req.method === "GET") {
+      console.log("[Tasks] GET /tasks/friends")
+
+      const { data: friendships, error: friendshipError } = await supabase
+        .from("friends")
+        .select("requester_id, addressee_id")
+        .eq("status", "accepted")
+        .or(`requester_id.eq.${userId},addressee_id.eq.${userId}`)
+
+      if (friendshipError) {
+        return jsonResponse({ success: false, error: friendshipError.message }, 400)
+      }
+
+      const friendIds = (friendships ?? []).map((f: Json) =>
+        f.requester_id === userId ? f.addressee_id : f.requester_id
+      ) as string[]
+
+      if (friendIds.length === 0) {
+        return jsonResponse({ success: true, tasks: [] })
+      }
+
+      const { data: tasks, error: tasksError } = await supabase
+        .from("tasks")
+        .select("*")
+        .in("user_id", friendIds)
+        .order("created_at", { ascending: false })
+
+      if (tasksError) {
+        return jsonResponse({ success: false, error: tasksError.message }, 400)
+      }
+
+      // Attach profile info to each task so the frontend knows whose task it is
+      const taskUserIds = [...new Set((tasks ?? []).map((t: Json) => t.user_id))] as string[]
+      const { data: profiles } = await supabase
+        .from("profiles")
+        .select("user_id, username, name, avatar_url")
+        .in("user_id", taskUserIds.length > 0 ? taskUserIds : ["none"])
+
+      const profileMap = new Map((profiles ?? []).map((p: Json) => [p.user_id, p]))
+
+      const enriched = (tasks ?? []).map((t: Json) => ({
+        ...t,
+        profile: profileMap.get(t.user_id as string) ?? {},
+      }))
+
+      return jsonResponse({ success: true, tasks: enriched })
+    }
+
     if (endpoint === "/tasks" && req.method === "POST") {
       console.log("[Tasks] POST /tasks")
       const body = await parseBody(req)
+
+      if (typeof body.latitude !== "number" || typeof body.longitude !== "number") {
+        return jsonResponse({ success: false, error: "Task location (latitude, longitude) is required" }, 400)
+      }
 
       const insert: TaskInsert = {
         user_id: userId,
@@ -210,6 +274,8 @@ Deno.serve(async (req: Request) => {
         category_id: body.category_id as string | undefined,
         due_date: body.dueDate as string,
         completed: false,
+        latitude: body.latitude as number,
+        longitude: body.longitude as number,
       }
 
       console.log("[Tasks] Inserting task:", insert)
@@ -233,7 +299,40 @@ Deno.serve(async (req: Request) => {
     if (taskMatch && req.method === "PUT") {
       const taskId = taskMatch[1]
       console.log("[Tasks] PUT /tasks/" + taskId)
-      const updates = await parseBody(req)
+      const body = await parseBody(req)
+
+      if (body.completed === true) {
+        const userLat = body.user_latitude as number | undefined
+        const userLng = body.user_longitude as number | undefined
+
+        if (typeof userLat !== "number" || typeof userLng !== "number") {
+          return jsonResponse({ success: false, error: "Your current location is required to complete a task" }, 400)
+        }
+
+        const { data: task, error: fetchError } = await supabase
+          .from("tasks")
+          .select("latitude, longitude")
+          .eq("id", taskId)
+          .eq("user_id", userId)
+          .single()
+
+        if (fetchError || !task) {
+          return jsonResponse({ success: false, error: fetchError?.message ?? "Task not found" }, 400)
+        }
+
+        if (typeof task.latitude === "number" && typeof task.longitude === "number") {
+          const distance = haversineDistance(userLat, userLng, task.latitude, task.longitude)
+          console.log(`[Tasks] Distance to task pin: ${distance.toFixed(2)}m`)
+          if (distance > 5) {
+            return jsonResponse({
+              success: false,
+              error: `You must be within 5 meters of the task location to complete it. You are ${Math.round(distance)}m away.`,
+            }, 403)
+          }
+        }
+      }
+
+      const { user_latitude: _ul, user_longitude: _uln, ...updates } = body
 
       const { data, error } = await supabase
         .from("tasks")
@@ -601,7 +700,7 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ success: true, data })
     }
 
-    // GET /location/friends — get accepted friends' locations (share_location = true only)
+    // GET /location/friends — get accepted friends' locations (includes last known for disabled sharing)
     if (endpoint === "/location/friends" && req.method === "GET") {
       console.log("[Location] GET /location/friends")
 
@@ -651,15 +750,14 @@ Deno.serve(async (req: Request) => {
       const profileMap = new Map((profiles ?? []).map((p: Json) => [p.user_id, p]))
       const settingsMap = new Map((settings ?? []).map((s: Json) => [s.user_id, s]))
 
-      // Only include friends who have share_location = true
-      const filtered = (locations ?? [])
-        .filter((l: Json) => (settingsMap.get(l.user_id as string) as Json)?.share_location === true)
-        .map((l: Json) => ({
-          ...l,
-          profile: profileMap.get(l.user_id as string) ?? {},
-        }))
+      // Return all friend locations — include sharing_enabled flag so frontend can show "last seen"
+      const result = (locations ?? []).map((l: Json) => ({
+        ...l,
+        sharing_enabled: (settingsMap.get(l.user_id as string) as Json)?.share_location === true,
+        profile: profileMap.get(l.user_id as string) ?? {},
+      }))
 
-      return jsonResponse({ success: true, locations: filtered })
+      return jsonResponse({ success: true, locations: result })
     }
 
     /* ---------------- PROFILE ROUTES ---------------- */

@@ -1,15 +1,20 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as Location from 'expo-location';
+import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    Modal,
-    ScrollView,
-    StyleSheet,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Modal,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
+import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
+import { WebView } from 'react-native-webview';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -24,8 +29,117 @@ type Priority = 'low' | 'medium' | 'high';
 
 const PRIORITIES: Priority[] = ['low', 'medium', 'high'];
 
+const generatePickerMapHTML = (latitude: number, longitude: number, isDark: boolean, pinLat?: number, pinLng?: number) => {
+  const initPinLat = pinLat ?? latitude;
+  const initPinLng = pinLng ?? longitude;
+  const bgColor = isDark ? '#1a1a2e' : '#ffffff';
+  const tileUrl = isDark
+    ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+    : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+  const tileAttribution = isDark
+    ? '&copy; OpenStreetMap contributors &copy; CARTO'
+    : '&copy; OpenStreetMap contributors';
+  const bannerBg = isDark ? 'rgba(30,30,46,0.88)' : 'rgba(255,255,255,0.92)';
+  const bannerText = isDark ? '#e0e0e0' : '#333';
+  const bannerBorder = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)';
+
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+      <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+      <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+      <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background-color: ${bgColor}; }
+        #map { height: 100vh; width: 100vw; }
+        .banner {
+          position: fixed;
+          bottom: 24px;
+          left: 50%;
+          transform: translateX(-50%);
+          z-index: 1000;
+          background: ${bannerBg};
+          color: ${bannerText};
+          padding: 10px 20px;
+          border-radius: 24px;
+          font-size: 14px;
+          font-weight: 600;
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+          box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+          border: 1px solid ${bannerBorder};
+          pointer-events: none;
+          white-space: nowrap;
+        }
+        .leaflet-control-attribution {
+          background: ${isDark ? 'rgba(30,30,46,0.7) !important' : 'rgba(255,255,255,0.7) !important'};
+          color: ${isDark ? '#888 !important' : '#333 !important'};
+        }
+        .leaflet-control-attribution a {
+          color: ${isDark ? '#aaa !important' : '#0078A8 !important'};
+        }
+      </style>
+    </head>
+    <body>
+      <div id="map"></div>
+      <div class="banner">Tap anywhere to drop a pin</div>
+      <script>
+        const map = L.map('map').setView([${latitude}, ${longitude}], 16);
+        L.tileLayer('${tileUrl}', {
+          attribution: '${tileAttribution}',
+          maxZoom: 19
+        }).addTo(map);
+
+        // User location marker
+        const userIcon = L.icon({
+          iconUrl: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSIxMiIgY3k9IjEyIiByPSI4IiBmaWxsPSIjNENBRjUwIiBmaWxsLW9wYWNpdHk9IjAuMjUiIHN0cm9rZT0iIzRDQUY1MCIgc3Ryb2tlLXdpZHRoPSIyIi8+PGNpcmNsZSBjeD0iMTIiIGN5PSIxMiIgcj0iMyIgZmlsbD0iIzRDQUY1MCIvPjwvc3ZnPg==',
+          iconSize: [24, 24],
+          iconAnchor: [12, 12],
+        });
+        L.marker([${latitude}, ${longitude}], { icon: userIcon, interactive: false }).addTo(map);
+
+        // Task pin marker
+        const pinIcon = L.icon({
+          iconUrl: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIiIGhlaWdodD0iNDgiIHZpZXdCb3g9IjAgMCAzMiA0OCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNMTYgMEM3LjE2NCAwIDAgNy4xNjQgMCAxNmMwIDEyIDE2IDMyIDE2IDMyUzMyIDI4IDMyIDE2QzMyIDcuMTY0IDI0LjgzNiAwIDE2IDBaIiBmaWxsPSIjRkY2QjZCIi8+PGNpcmNsZSBjeD0iMTYiIGN5PSIxNiIgcj0iNiIgZmlsbD0iI2ZmZiIvPjwvc3ZnPg==',
+          iconSize: [32, 48],
+          iconAnchor: [16, 48],
+        });
+
+        let marker = L.marker([${initPinLat}, ${initPinLng}], { icon: pinIcon }).addTo(map);
+
+        map.on('click', function(e) {
+          marker.setLatLng(e.latlng);
+          window.ReactNativeWebView.postMessage(JSON.stringify({ lat: e.latlng.lat, lng: e.latlng.lng }));
+          document.querySelector('.banner').style.display = 'none';
+        });
+
+        window.ReactNativeWebView.postMessage(JSON.stringify({ lat: ${initPinLat}, lng: ${initPinLng} }));
+      </script>
+    </body>
+    </html>
+  `;
+};
+
+function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371000;
+  const toRad = (deg: number) => deg * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 export default function HomeScreen() {
   const colorScheme = useColorScheme();
+  const isDark = colorScheme === 'dark';
+  const borderColor = isDark ? '#333' : '#ddd';
+  const textColor = isDark ? '#fff' : '#000';
+  const placeholderColor = isDark ? '#666' : '#aaa';
+  const chipBg = isDark ? '#2a2a2a' : '#f0f0f0';
+
   const { data: tasks, loading, refetch: refetchTasks } = useApi(() =>
     taskService.getTasks()
   );
@@ -49,7 +163,7 @@ export default function HomeScreen() {
   );
 
   const { mutate: completeTask } = useMutation(
-    (id: string) => taskService.completeTask(id)
+    ({ id, lat, lng }: { id: string; lat: number; lng: number }) => taskService.completeTask(id, lat, lng)
   );
 
   const { mutate: uncompleteTask } = useMutation(
@@ -64,7 +178,6 @@ export default function HomeScreen() {
   const [sortBy, setSortBy] = useState<'date' | 'priority' | 'category'>('date');
   const [filterBy, setFilterBy] = useState<'all' | 'active' | 'completed'>('all');
 
-  // Fetch subtasks when a task is expanded
   useEffect(() => {
     if (!expandedTaskId) return;
     subtaskService.getSubtasks(expandedTaskId).then(({ data }) => {
@@ -92,13 +205,29 @@ export default function HomeScreen() {
     if (data && Array.isArray(data)) setSubtasksMap((prev) => ({ ...prev, [taskId]: data }));
   };
 
-  // Modal form state
   const [modalInput, setModalInput] = useState('');
   const [modalDescription, setModalDescription] = useState('');
   const [modalPriority, setModalPriority] = useState<Priority>('medium');
   const [modalCategoryId, setModalCategoryId] = useState<string | null>(null);
   const [modalDueDate, setModalDueDate] = useState('');
   const [newCategoryName, setNewCategoryName] = useState('');
+  const [showMapPicker, setShowMapPicker] = useState(false);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [pickedLocation, setPickedLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number }>({ lat: 37.7749, lng: -122.4194 });
+  const [completingTaskId, setCompletingTaskId] = useState<string | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status === 'granted') {
+          const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+          setUserLocation({ lat: loc.coords.latitude, lng: loc.coords.longitude });
+        }
+      } catch {}
+    })();
+  }, []);
 
   const handleOpenModal = (task?: Task) => {
     if (task) {
@@ -108,6 +237,11 @@ export default function HomeScreen() {
       setModalPriority((task.priority as Priority) || 'medium');
       setModalCategoryId((task as any).category_id || null);
       setModalDueDate(task.dueDate || '');
+      setPickedLocation(
+        task.latitude != null && task.longitude != null
+          ? { lat: task.latitude, lng: task.longitude }
+          : null
+      );
     } else {
       setEditingTask(null);
       setModalInput('');
@@ -115,6 +249,7 @@ export default function HomeScreen() {
       setModalPriority('medium');
       setModalCategoryId(null);
       setModalDueDate('');
+      setPickedLocation(null);
     }
     setShowModal(true);
   };
@@ -134,6 +269,11 @@ export default function HomeScreen() {
       return;
     }
 
+    if (!editingTask && !pickedLocation) {
+      Alert.alert('Error', 'Please drop a pin on the map for this task');
+      return;
+    }
+
     if (editingTask) {
       const { error } = await updateTask({
         id: editingTask.id,
@@ -143,6 +283,7 @@ export default function HomeScreen() {
           priority: modalPriority,
           dueDate: modalDueDate || undefined,
           ...(modalCategoryId ? { category_id: modalCategoryId } : {}),
+          ...(pickedLocation ? { latitude: pickedLocation.lat, longitude: pickedLocation.lng } : {}),
         },
       });
 
@@ -154,11 +295,13 @@ export default function HomeScreen() {
     } else {
       const { error } = await createTask({
         title: modalInput.trim(),
-        description: modalDescription.trim(),
+        description: modalDescription.trim() || undefined,
         priority: modalPriority,
         dueDate: modalDueDate || undefined,
+        latitude: pickedLocation!.lat,
+        longitude: pickedLocation!.lng,
         ...(modalCategoryId ? { category_id: modalCategoryId } : {}),
-      } as any);
+      });
 
       if (error) {
         Alert.alert('Error', error.message);
@@ -174,16 +317,45 @@ export default function HomeScreen() {
   const handleToggleTask = async (id: string, completed: boolean) => {
     if (completed) {
       const { error } = await uncompleteTask(id);
-      if (error) {
-        Alert.alert('Error', error.message);
+      if (error) { Alert.alert('Error', error.message); return; }
+      refetchTasks();
+      return;
+    }
+
+    const task = (Array.isArray(tasks) ? tasks : []).find((t) => t.id === id);
+    if (task?.latitude != null && task?.longitude != null) {
+      setCompletingTaskId(id);
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert('Error', 'Location permission is required to complete tasks');
+          setCompletingTaskId(null);
+          return;
+        }
+        const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+        const distance = haversineDistance(
+          loc.coords.latitude, loc.coords.longitude,
+          task.latitude!, task.longitude!
+        );
+        if (distance > 5) {
+          Alert.alert(
+            'Too far away',
+            `You must be within 5 meters of the task location to complete it. You are ${Math.round(distance)}m away.`
+          );
+          setCompletingTaskId(null);
+          return;
+        }
+        const { error } = await completeTask({ id, lat: loc.coords.latitude, lng: loc.coords.longitude });
+        if (error) { Alert.alert('Error', error.message); setCompletingTaskId(null); return; }
+      } catch {
+        Alert.alert('Error', 'Failed to get your location');
+        setCompletingTaskId(null);
         return;
       }
+      setCompletingTaskId(null);
     } else {
-      const { error } = await completeTask(id);
-      if (error) {
-        Alert.alert('Error', error.message);
-        return;
-      }
+      const { error } = await completeTask({ id, lat: 0, lng: 0 });
+      if (error) { Alert.alert('Error', error.message); return; }
     }
     refetchTasks();
   };
@@ -195,10 +367,7 @@ export default function HomeScreen() {
         text: 'Delete',
         onPress: async () => {
           const { error } = await deleteTask(id);
-          if (error) {
-            Alert.alert('Error', error.message);
-            return;
-          }
+          if (error) { Alert.alert('Error', error.message); return; }
           refetchTasks();
         },
       },
@@ -238,14 +407,26 @@ export default function HomeScreen() {
 
   const getPriorityColor = (priority?: string) => {
     switch (priority) {
-      case 'high':
-        return '#ff6b6b';
-      case 'medium':
-        return '#ffa500';
-      case 'low':
-        return '#4CAF50';
-      default:
-        return '#888';
+      case 'high': return '#ff6b6b';
+      case 'medium': return '#ffa500';
+      case 'low': return '#4CAF50';
+      default: return '#888';
+    }
+  };
+
+  const formatDateDisplay = (dateStr: string) => {
+    const d = new Date(dateStr + 'T00:00:00');
+    if (isNaN(d.getTime())) return dateStr;
+    return `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}/${d.getFullYear()}`;
+  };
+
+  const handleDateChange = (_event: DateTimePickerEvent, selectedDate?: Date) => {
+    if (Platform.OS === 'android') setShowDatePicker(false);
+    if (selectedDate) {
+      const yyyy = selectedDate.getFullYear();
+      const mm = String(selectedDate.getMonth() + 1).padStart(2, '0');
+      const dd = String(selectedDate.getDate()).padStart(2, '0');
+      setModalDueDate(`${yyyy}-${mm}-${dd}`);
     }
   };
 
@@ -258,40 +439,48 @@ export default function HomeScreen() {
   const taskList = Array.isArray(tasks) ? tasks : [];
   const completedCount = taskList.filter((t) => t.completed).length;
   const totalCount = taskList.length;
+  const progressPercent = totalCount > 0 ? (completedCount / totalCount) * 100 : 0;
 
   if (loading) {
     return (
       <ThemedView style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
-        <ActivityIndicator size="large" color="#007AFF" />
+        <ActivityIndicator size="large" color="#4CAF50" />
+        <ThemedText style={{ marginTop: 12, opacity: 0.6 }}>Loading tasks...</ThemedText>
       </ThemedView>
     );
   }
 
   return (
     <ThemedView style={styles.container}>
-      <ThemedView style={styles.header}>
-        <ThemedText type="title">My Tasks</ThemedText>
+      {/* Stats */}
+      <ThemedView style={styles.statsRow}>
         <ThemedText style={styles.statsText}>
           {completedCount} of {totalCount} completed
         </ThemedText>
+        {totalCount > 0 && (
+          <ThemedView style={[styles.progressBarBg, { backgroundColor: chipBg }]}>
+            <View style={[styles.progressBarFill, { width: `${progressPercent}%` }]} />
+          </ThemedView>
+        )}
       </ThemedView>
 
       {/* Filter & Sort Controls */}
       <ThemedView style={styles.controlsContainer}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 10 }}>
           {(['all', 'active', 'completed'] as const).map((filter) => (
             <TouchableOpacity
               key={filter}
               style={[
-                styles.filterButton,
-                filterBy === filter && styles.filterButtonActive,
+                styles.chipButton,
+                { borderColor },
+                filterBy === filter && styles.chipButtonActive,
               ]}
               onPress={() => setFilterBy(filter)}
             >
               <ThemedText
                 style={[
-                  styles.filterButtonText,
-                  filterBy === filter && styles.filterButtonTextActive,
+                  styles.chipButtonText,
+                  filterBy === filter && styles.chipButtonTextActive,
                 ]}
               >
                 {filter.charAt(0).toUpperCase() + filter.slice(1)}
@@ -305,20 +494,21 @@ export default function HomeScreen() {
             <TouchableOpacity
               key={sort}
               style={[
-                styles.sortButton,
-                sortBy === sort && styles.sortButtonActive,
+                styles.chipButton,
+                { borderColor },
+                sortBy === sort && styles.chipButtonActive,
               ]}
               onPress={() => setSortBy(sort)}
             >
               <Ionicons
-                name={sortBy === sort ? 'filter' : 'filter-outline'}
-                size={16}
+                name={sort === 'date' ? 'calendar-outline' : sort === 'priority' ? 'flag-outline' : 'folder-outline'}
+                size={14}
                 color={sortBy === sort ? '#fff' : '#888'}
               />
               <ThemedText
                 style={[
-                  styles.sortButtonText,
-                  sortBy === sort && styles.sortButtonTextActive,
+                  styles.chipButtonText,
+                  sortBy === sort && styles.chipButtonTextActive,
                 ]}
               >
                 {sort.charAt(0).toUpperCase() + sort.slice(1)}
@@ -328,22 +518,20 @@ export default function HomeScreen() {
         </ScrollView>
       </ThemedView>
 
-      {/* Add Task Button */}
-      <TouchableOpacity style={styles.addButton} onPress={() => handleOpenModal()}>
-        <Ionicons name="add" size={24} color="#fff" />
-      </TouchableOpacity>
-
       {/* Tasks List */}
-      <ScrollView style={styles.taskList} showsVerticalScrollIndicator={false}>
+      <ScrollView style={styles.taskList} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 80 }}>
         {filteredTasks.length === 0 ? (
           <ThemedView style={styles.emptyState}>
             <Ionicons
               name="checkmark-done-circle-outline"
-              size={48}
-              color={colorScheme === 'dark' ? '#666' : '#ccc'}
+              size={64}
+              color={isDark ? '#444' : '#ccc'}
             />
             <ThemedText style={styles.emptyText}>
-              {filterBy === 'completed' ? 'No completed tasks yet' : 'No tasks yet. Add one to get started!'}
+              {filterBy === 'completed' ? 'No completed tasks yet' : 'No tasks yet'}
+            </ThemedText>
+            <ThemedText style={styles.emptySubtext}>
+              Tap + to create your first task
             </ThemedText>
           </ThemedView>
         ) : (
@@ -351,74 +539,87 @@ export default function HomeScreen() {
             <View key={task.id}>
               <TouchableOpacity
                 style={[
-                  styles.taskItem,
-                  task.completed && styles.taskItemCompleted,
-                  isOverdue(task.dueDate) && !task.completed && styles.taskItemOverdue,
+                  styles.taskCard,
+                  { borderColor },
+                  task.completed && styles.taskCardCompleted,
+                  isOverdue(task.dueDate) && !task.completed && styles.taskCardOverdue,
                 ]}
+                activeOpacity={0.7}
                 onPress={() => setExpandedTaskId(expandedTaskId === task.id ? null : task.id)}
               >
-                <TouchableOpacity
-                  style={styles.checkbox}
-                  onPress={() => handleToggleTask(task.id, task.completed)}
-                >
-                  <Ionicons
-                    name={task.completed ? 'checkbox' : 'checkbox-outline'}
-                    size={24}
-                    color={task.completed ? '#4CAF50' : '#888'}
-                  />
-                </TouchableOpacity>
+                {completingTaskId === task.id ? (
+                  <View style={styles.checkbox}>
+                    <ActivityIndicator size="small" color="#4CAF50" />
+                  </View>
+                ) : (
+                  <TouchableOpacity
+                    style={styles.checkbox}
+                    onPress={() => handleToggleTask(task.id, task.completed)}
+                  >
+                    <Ionicons
+                      name={task.completed ? 'checkbox' : 'square-outline'}
+                      size={24}
+                      color={task.completed ? '#4CAF50' : '#888'}
+                    />
+                  </TouchableOpacity>
+                )}
 
                 <ThemedView style={styles.taskMainContent}>
                   <ThemedText
                     style={[
-                      styles.taskText,
+                      styles.taskTitle,
                       task.completed && styles.completedTaskText,
                     ]}
                   >
                     {task.title}
                   </ThemedText>
-                  {task.description && (
-                    <ThemedText style={styles.taskDescription}>{task.description}</ThemedText>
-                  )}
-                  <ThemedView style={styles.taskMetaContainer}>
+                  {task.description ? (
+                    <ThemedText style={styles.taskDescription} numberOfLines={2}>
+                      {task.description}
+                    </ThemedText>
+                  ) : null}
+                  <ThemedView style={styles.taskMetaRow}>
                     {task.dueDate && (
-                      <ThemedView style={styles.metaTag}>
+                      <ThemedView style={[styles.metaTag, { backgroundColor: chipBg }]}>
                         <Ionicons
-                          name="calendar"
+                          name="calendar-outline"
                           size={12}
                           color={isOverdue(task.dueDate) && !task.completed ? '#ff6b6b' : '#888'}
                         />
                         <ThemedText
                           style={[
-                            styles.metaText,
-                            isOverdue(task.dueDate) &&
-                              !task.completed &&
-                              styles.overdueText,
+                            styles.metaTagText,
+                            isOverdue(task.dueDate) && !task.completed && { color: '#ff6b6b', fontWeight: '700' },
                           ]}
                         >
-                          {task.dueDate}
+                          {formatDateDisplay(task.dueDate!)}
                         </ThemedText>
                       </ThemedView>
                     )}
                     <ThemedView
                       style={[
-                        styles.categoryTag,
-                        { borderColor: getPriorityColor(task.priority) },
+                        styles.priorityTag,
+                        { borderColor: getPriorityColor(task.priority), backgroundColor: getPriorityColor(task.priority) + '18' },
                       ]}
                     >
                       <ThemedText
-                        style={[
-                          styles.categoryTagText,
-                          { color: getPriorityColor(task.priority) },
-                        ]}
+                        style={[styles.priorityTagText, { color: getPriorityColor(task.priority) }]}
                       >
-                        {(task.priority as string)?.charAt(0).toUpperCase()}
+                        {(task.priority as string)?.charAt(0).toUpperCase() + ((task.priority as string)?.slice(1) || '')}
                       </ThemedText>
                     </ThemedView>
                     {(task as any).category_id && (
-                      <ThemedView style={styles.categoryBadge}>
-                        <ThemedText style={styles.categoryBadgeText}>
+                      <ThemedView style={[styles.metaTag, { backgroundColor: isDark ? '#1a2a3a' : '#e3f2fd' }]}>
+                        <ThemedText style={[styles.metaTagText, { color: '#1976d2' }]}>
                           {categories.find((c) => c.id === (task as any).category_id)?.name ?? ''}
+                        </ThemedText>
+                      </ThemedView>
+                    )}
+                    {task.latitude != null && task.longitude != null && (
+                      <ThemedView style={[styles.metaTag, { backgroundColor: isDark ? '#2a1a2a' : '#fce4ec' }]}>
+                        <Ionicons name="location" size={12} color="#e91e63" />
+                        <ThemedText style={[styles.metaTagText, { color: '#e91e63' }]}>
+                          Pin
                         </ThemedText>
                       </ThemedView>
                     )}
@@ -426,23 +627,22 @@ export default function HomeScreen() {
                 </ThemedView>
 
                 <TouchableOpacity onPress={() => handleOpenModal(task)} style={styles.editButton}>
-                  <Ionicons name="pencil" size={18} color="#4CAF50" />
+                  <Ionicons name="create-outline" size={20} color="#4CAF50" />
                 </TouchableOpacity>
               </TouchableOpacity>
 
               {/* Expanded Task Details */}
               {expandedTaskId === task.id && (
-                <ThemedView style={styles.expandedContent}>
-                  {/* Subtasks */}
+                <ThemedView style={[styles.expandedContent, { borderColor: '#4CAF50' }]}>
                   <ThemedText style={styles.subtaskTitle}>Subtasks</ThemedText>
                   {(subtasksMap[task.id] || []).map((subtask) => (
                     <TouchableOpacity
                       key={subtask.id}
-                      style={styles.subtaskItem}
+                      style={[styles.subtaskItem, { backgroundColor: chipBg }]}
                       onPress={() => handleToggleSubtask(task.id, subtask.id, subtask.completed)}
                     >
                       <Ionicons
-                        name={subtask.completed ? 'checkbox' : 'checkbox-outline'}
+                        name={subtask.completed ? 'checkbox' : 'square-outline'}
                         size={18}
                         color={subtask.completed ? '#4CAF50' : '#888'}
                       />
@@ -451,25 +651,41 @@ export default function HomeScreen() {
                       </ThemedText>
                     </TouchableOpacity>
                   ))}
-                  <ThemedView style={styles.addSubtaskContainer}>
+                  <ThemedView style={[styles.addSubtaskRow, { borderColor }]}>
                     <TextInput
-                      style={[styles.subtaskInput, { color: colorScheme === 'dark' ? '#fff' : '#000' }]}
+                      style={[styles.subtaskInput, { color: textColor }]}
                       placeholder="Add subtask..."
-                      placeholderTextColor="#888"
+                      placeholderTextColor={placeholderColor}
                       value={newSubtaskInput}
                       onChangeText={setNewSubtaskInput}
                     />
-                    <TouchableOpacity onPress={() => handleAddSubtask(task.id)} style={styles.addSubtaskBtn}>
+                    <TouchableOpacity onPress={() => handleAddSubtask(task.id)}>
                       <Ionicons name="add-circle" size={28} color="#4CAF50" />
                     </TouchableOpacity>
                   </ThemedView>
 
+                  {task.latitude != null && task.longitude != null && (
+                    <TouchableOpacity
+                      onPress={() => {
+                        setExpandedTaskId(null);
+                        router.navigate({
+                          pathname: '/(tabs)/explore',
+                          params: { taskLat: task.latitude, taskLng: task.longitude, taskTitle: task.title },
+                        });
+                      }}
+                      style={styles.viewOnMapButton}
+                    >
+                      <Ionicons name="map-outline" size={18} color="#fff" />
+                      <ThemedText style={styles.viewOnMapButtonText}>View on Map</ThemedText>
+                    </TouchableOpacity>
+                  )}
+
                   <TouchableOpacity
                     onPress={() => handleDeleteTask(task.id)}
-                    style={styles.deleteTaskButton}
+                    style={styles.deleteButton}
                   >
-                    <Ionicons name="trash" size={18} color="#fff" />
-                    <ThemedText style={styles.deleteTaskButtonText}>Delete Task</ThemedText>
+                    <Ionicons name="trash-outline" size={18} color="#fff" />
+                    <ThemedText style={styles.deleteButtonText}>Delete Task</ThemedText>
                   </TouchableOpacity>
                 </ThemedView>
               )}
@@ -478,130 +694,223 @@ export default function HomeScreen() {
         )}
       </ScrollView>
 
-      {/* Add/Edit Task Modal */}
-      <Modal visible={showModal} animationType="slide" transparent>
-        <ThemedView style={styles.modalOverlay}>
-          <ThemedView style={styles.modalContent}>
-            <ThemedView style={styles.modalHeader}>
-              <ThemedText type="title">{editingTask ? 'Edit Task' : 'New Task'}</ThemedText>
-              <TouchableOpacity onPress={() => setShowModal(false)}>
-                <Ionicons name="close" size={28} color="#888" />
-              </TouchableOpacity>
-            </ThemedView>
+      {/* Floating Add Button */}
+      <TouchableOpacity style={styles.fab} onPress={() => handleOpenModal()} activeOpacity={0.8}>
+        <Ionicons name="add" size={28} color="#fff" />
+      </TouchableOpacity>
 
-            <ScrollView style={styles.modalScroll}>
-              {/* Title */}
-              <ThemedText style={styles.modalLabel}>Title</ThemedText>
+      {/* Add/Edit Task Modal */}
+      <Modal visible={showModal} animationType="slide">
+        <ThemedView style={styles.modalContainer}>
+          <ThemedView style={styles.modalHeader}>
+            <TouchableOpacity onPress={() => setShowModal(false)}>
+              <Ionicons name="close" size={26} color="#888" />
+            </TouchableOpacity>
+            <ThemedText style={styles.modalTitle}>{editingTask ? 'Edit Task' : 'New Task'}</ThemedText>
+            <TouchableOpacity onPress={handleSaveTask}>
+              <ThemedText style={styles.modalSaveText}>
+                {editingTask ? 'Save' : 'Create'}
+              </ThemedText>
+            </TouchableOpacity>
+          </ThemedView>
+
+          <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.modalBody} showsVerticalScrollIndicator={false}>
+            {/* Title */}
+            <ThemedText style={styles.label}>Title</ThemedText>
+            <ThemedView style={[styles.inputContainer, { borderColor }]}>
+              <Ionicons name="document-text-outline" size={20} color="#888" />
               <TextInput
-                style={[
-                  styles.modalInput,
-                  { color: colorScheme === 'dark' ? '#fff' : '#000' },
-                ]}
+                style={[styles.input, { color: textColor }]}
                 placeholder="Task title"
-                placeholderTextColor={colorScheme === 'dark' ? '#888' : '#ccc'}
+                placeholderTextColor={placeholderColor}
                 value={modalInput}
                 onChangeText={setModalInput}
               />
+            </ThemedView>
 
-              {/* Description */}
-              <ThemedText style={styles.modalLabel}>Description</ThemedText>
+            {/* Description */}
+            <ThemedText style={styles.label}>Description</ThemedText>
+            <ThemedView style={[styles.inputContainer, styles.inputContainerMultiline, { borderColor }]}>
+              <Ionicons name="text-outline" size={20} color="#888" style={{ marginTop: 2 }} />
               <TextInput
-                style={[
-                  styles.modalInputMultiline,
-                  { color: colorScheme === 'dark' ? '#fff' : '#000' },
-                ]}
+                style={[styles.input, { color: textColor, minHeight: 60 }]}
                 placeholder="Add details..."
-                placeholderTextColor={colorScheme === 'dark' ? '#888' : '#ccc'}
+                placeholderTextColor={placeholderColor}
                 value={modalDescription}
                 onChangeText={setModalDescription}
                 multiline
               />
+            </ThemedView>
 
-              {/* Due Date */}
-              <ThemedText style={styles.modalLabel}>Due Date (YYYY-MM-DD)</ThemedText>
-              <TextInput
-                style={[
-                  styles.modalInput,
-                  { color: colorScheme === 'dark' ? '#fff' : '#000' },
-                ]}
-                placeholder="2024-12-25"
-                placeholderTextColor={colorScheme === 'dark' ? '#888' : '#ccc'}
-                value={modalDueDate}
-                onChangeText={setModalDueDate}
-              />
-
-              {/* Priority */}
-              <ThemedText style={styles.modalLabel}>Priority</ThemedText>
-              <ThemedView style={styles.priorityContainer}>
-                {PRIORITIES.map((p) => (
+            {/* Due Date */}
+            <ThemedText style={styles.label}>Due Date</ThemedText>
+            <TouchableOpacity
+              style={[styles.inputContainer, { borderColor }]}
+              onPress={() => setShowDatePicker(true)}
+            >
+              <Ionicons name="calendar-outline" size={20} color="#888" />
+              <ThemedText style={[styles.input, { color: modalDueDate ? textColor : placeholderColor }]}>
+                {modalDueDate ? formatDateDisplay(modalDueDate) : 'MM/DD/YYYY'}
+              </ThemedText>
+              {modalDueDate ? (
+                <TouchableOpacity onPress={() => setModalDueDate('')} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                  <Ionicons name="close-circle" size={20} color="#888" />
+                </TouchableOpacity>
+              ) : null}
+            </TouchableOpacity>
+            {showDatePicker && (
+              <View>
+                <DateTimePicker
+                  value={modalDueDate ? new Date(modalDueDate + 'T00:00:00') : new Date()}
+                  mode="date"
+                  display={Platform.OS === 'ios' ? 'inline' : 'default'}
+                  onChange={handleDateChange}
+                  themeVariant={isDark ? 'dark' : 'light'}
+                />
+                {Platform.OS === 'ios' && (
                   <TouchableOpacity
-                    key={p}
-                    style={[
-                      styles.priorityButton,
-                      modalPriority === p && styles.priorityButtonActive,
-                      {
-                        borderColor: getPriorityColor(p),
-                        backgroundColor:
-                          modalPriority === p
-                            ? getPriorityColor(p)
-                            : 'transparent',
-                      },
-                    ]}
-                    onPress={() => setModalPriority(p)}>
-                    <ThemedText
-                      style={[
-                        styles.priorityButtonText,
-                        modalPriority === p && styles.priorityButtonTextActive,
-                        { color: getPriorityColor(p) },
-                      ]}>
-                      {p.charAt(0).toUpperCase() + p.slice(1)}
-                    </ThemedText>
+                    style={styles.datePickerDoneButton}
+                    onPress={() => setShowDatePicker(false)}
+                  >
+                    <ThemedText style={{ color: '#4CAF50', fontWeight: '700', fontSize: 16 }}>Done</ThemedText>
                   </TouchableOpacity>
-                ))}
-              </ThemedView>
+                )}
+              </View>
+            )}
 
-              {/* Category */}
-              <ThemedText style={styles.modalLabel}>Category</ThemedText>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}>
+            {/* Priority */}
+            <ThemedText style={styles.label}>Priority</ThemedText>
+            <ThemedView style={styles.priorityRow}>
+              {PRIORITIES.map((p) => (
                 <TouchableOpacity
-                  style={[styles.categoryButton, !modalCategoryId && styles.categoryButtonActive]}
-                  onPress={() => setModalCategoryId(null)}>
-                  <ThemedText style={[styles.categoryButtonText, !modalCategoryId && styles.categoryButtonTextActive]}>
-                    None
+                  key={p}
+                  style={[
+                    styles.priorityButton,
+                    {
+                      borderColor: getPriorityColor(p),
+                      backgroundColor: modalPriority === p ? getPriorityColor(p) : 'transparent',
+                    },
+                  ]}
+                  onPress={() => setModalPriority(p)}
+                >
+                  <ThemedText
+                    style={{
+                      fontWeight: '600',
+                      fontSize: 13,
+                      color: modalPriority === p ? '#fff' : getPriorityColor(p),
+                    }}
+                  >
+                    {p.charAt(0).toUpperCase() + p.slice(1)}
                   </ThemedText>
                 </TouchableOpacity>
-                {categories.map((cat) => (
-                  <TouchableOpacity
-                    key={cat.id}
-                    style={[styles.categoryButton, modalCategoryId === cat.id && styles.categoryButtonActive]}
-                    onPress={() => setModalCategoryId(cat.id)}>
-                    <ThemedText style={[styles.categoryButtonText, modalCategoryId === cat.id && styles.categoryButtonTextActive]}>
-                      {cat.name}
-                    </ThemedText>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-              <ThemedView style={styles.addSubtaskContainer}>
-                <TextInput
-                  style={[styles.subtaskInput, { color: colorScheme === 'dark' ? '#fff' : '#000', marginBottom: 16 }]}
-                  placeholder="New category name..."
-                  placeholderTextColor="#888"
-                  value={newCategoryName}
-                  onChangeText={setNewCategoryName}
-                />
-                <TouchableOpacity onPress={handleCreateCategory} style={styles.addSubtaskBtn}>
-                  <Ionicons name="add-circle" size={28} color="#4CAF50" />
-                </TouchableOpacity>
-              </ThemedView>
+              ))}
+            </ThemedView>
 
-              {/* Save Button */}
+            {/* Category */}
+            <ThemedText style={styles.label}>Category</ThemedText>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}>
               <TouchableOpacity
-                style={styles.saveButton}
-                onPress={handleSaveTask}>
-                <ThemedText style={styles.saveButtonText}>Save Task</ThemedText>
+                style={[styles.chipButton, { borderColor }, !modalCategoryId && styles.chipButtonActive]}
+                onPress={() => setModalCategoryId(null)}
+              >
+                <ThemedText style={[styles.chipButtonText, !modalCategoryId && styles.chipButtonTextActive]}>
+                  None
+                </ThemedText>
               </TouchableOpacity>
+              {categories.map((cat) => (
+                <TouchableOpacity
+                  key={cat.id}
+                  style={[styles.chipButton, { borderColor }, modalCategoryId === cat.id && styles.chipButtonActive]}
+                  onPress={() => setModalCategoryId(cat.id)}
+                >
+                  <ThemedText style={[styles.chipButtonText, modalCategoryId === cat.id && styles.chipButtonTextActive]}>
+                    {cat.name}
+                  </ThemedText>
+                </TouchableOpacity>
+              ))}
             </ScrollView>
+
+            <ThemedView style={[styles.inputContainer, { borderColor, marginBottom: 20 }]}>
+              <Ionicons name="pricetag-outline" size={20} color="#888" />
+              <TextInput
+                style={[styles.input, { color: textColor }]}
+                placeholder="New category name..."
+                placeholderTextColor={placeholderColor}
+                value={newCategoryName}
+                onChangeText={setNewCategoryName}
+              />
+              <TouchableOpacity onPress={handleCreateCategory}>
+                <Ionicons name="add-circle" size={24} color="#4CAF50" />
+              </TouchableOpacity>
+            </ThemedView>
+
+            {/* Location Pin */}
+            <ThemedText style={styles.label}>Location Pin</ThemedText>
+            <TouchableOpacity
+              style={[
+                styles.locationPickerButton,
+                { borderColor: pickedLocation ? '#4CAF50' : borderColor },
+              ]}
+              onPress={() => setShowMapPicker(true)}
+            >
+              <Ionicons
+                name={pickedLocation ? 'location' : 'location-outline'}
+                size={20}
+                color={pickedLocation ? '#4CAF50' : '#888'}
+              />
+              <ThemedText style={{ flex: 1, fontSize: 14, color: pickedLocation ? textColor : placeholderColor }}>
+                {pickedLocation
+                  ? `${pickedLocation.lat.toFixed(6)}, ${pickedLocation.lng.toFixed(6)}`
+                  : 'Tap to drop a pin on the map'}
+              </ThemedText>
+              <Ionicons name="chevron-forward" size={18} color="#888" />
+            </TouchableOpacity>
+
+            {/* Save Button */}
+            <TouchableOpacity style={styles.saveButton} onPress={handleSaveTask}>
+              <Ionicons name={editingTask ? 'checkmark-circle' : 'add-circle'} size={20} color="#fff" />
+              <ThemedText style={styles.saveButtonText}>
+                {editingTask ? 'Save Changes' : 'Create Task'}
+              </ThemedText>
+            </TouchableOpacity>
+
+            <View style={{ height: 40 }} />
+          </ScrollView>
+        </ThemedView>
+      </Modal>
+
+      {/* Map Picker Modal */}
+      <Modal visible={showMapPicker} animationType="slide">
+        <ThemedView style={{ flex: 1 }}>
+          <ThemedView style={styles.mapPickerHeader}>
+            <TouchableOpacity onPress={() => setShowMapPicker(false)}>
+              <ThemedText style={{ fontSize: 16, color: '#888' }}>Cancel</ThemedText>
+            </TouchableOpacity>
+            <ThemedText style={{ fontSize: 16, fontWeight: '700' }}>Drop a Pin</ThemedText>
+            <TouchableOpacity onPress={() => setShowMapPicker(false)}>
+              <ThemedText style={{ fontSize: 16, color: '#4CAF50', fontWeight: '700' }}>Done</ThemedText>
+            </TouchableOpacity>
           </ThemedView>
+          <WebView
+            source={{
+              html: generatePickerMapHTML(
+                userLocation.lat,
+                userLocation.lng,
+                isDark,
+                pickedLocation?.lat,
+                pickedLocation?.lng
+              ),
+            }}
+            style={{ flex: 1 }}
+            onMessage={(event) => {
+              try {
+                const data = JSON.parse(event.nativeEvent.data);
+                if (typeof data.lat === 'number' && typeof data.lng === 'number') {
+                  setPickedLocation({ lat: data.lat, lng: data.lng });
+                }
+              } catch {}
+            }}
+          />
         </ThemedView>
       </Modal>
     </ThemedView>
@@ -611,83 +920,49 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingHorizontal: 16,
-    paddingTop: 12,
+    paddingHorizontal: 20,
+    paddingTop: 16,
   },
-  header: {
-    marginBottom: 16,
+  statsRow: {
+    marginBottom: 12,
   },
   statsText: {
     fontSize: 14,
-    marginTop: 4,
     opacity: 0.6,
   },
-  inputContainer: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 12,
-    alignItems: 'center',
+  progressBarBg: {
+    height: 6,
+    borderRadius: 3,
+    marginTop: 10,
+    overflow: 'hidden',
   },
-  input: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 16,
-  },
-  addButton: {
+  progressBarFill: {
+    height: '100%',
     backgroundColor: '#4CAF50',
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    justifyContent: 'center',
-    alignItems: 'center',
+    borderRadius: 3,
   },
   controlsContainer: {
     marginBottom: 12,
   },
-  filterButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-    marginRight: 8,
-    borderWidth: 1,
-    borderColor: '#ddd',
-  },
-  filterButtonActive: {
-    backgroundColor: '#4CAF50',
-    borderColor: '#4CAF50',
-  },
-  filterButtonText: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  filterButtonTextActive: {
-    color: '#fff',
-  },
-  sortButton: {
+  chipButton: {
     flexDirection: 'row',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
     marginRight: 8,
     borderWidth: 1,
-    borderColor: '#ddd',
-    alignItems: 'center',
-    gap: 4,
+    gap: 6,
   },
-  sortButtonActive: {
+  chipButtonActive: {
     backgroundColor: '#4CAF50',
     borderColor: '#4CAF50',
   },
-  sortButtonText: {
-    fontSize: 12,
+  chipButtonText: {
+    fontSize: 13,
     fontWeight: '600',
-    color: '#888',
   },
-  sortButtonTextActive: {
+  chipButtonTextActive: {
     color: '#fff',
   },
   taskList: {
@@ -696,28 +971,32 @@ const styles = StyleSheet.create({
   emptyState: {
     justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 60,
+    paddingVertical: 80,
   },
   emptyText: {
-    marginTop: 12,
-    fontSize: 16,
-    opacity: 0.6,
-    textAlign: 'center',
-  },
-  taskItem: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    marginBottom: 8,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#ddd',
-  },
-  taskItemCompleted: {
+    marginTop: 16,
+    fontSize: 18,
+    fontWeight: '600',
     opacity: 0.5,
   },
-  taskItemOverdue: {
+  emptySubtext: {
+    marginTop: 6,
+    fontSize: 14,
+    opacity: 0.4,
+  },
+  taskCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    marginBottom: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  taskCardCompleted: {
+    opacity: 0.5,
+  },
+  taskCardOverdue: {
     borderColor: '#ff6b6b',
     borderWidth: 2,
   },
@@ -728,9 +1007,9 @@ const styles = StyleSheet.create({
   taskMainContent: {
     flex: 1,
   },
-  taskText: {
+  taskTitle: {
     fontSize: 16,
-    fontWeight: '500',
+    fontWeight: '600',
   },
   completedTaskText: {
     textDecorationLine: 'line-through',
@@ -739,9 +1018,9 @@ const styles = StyleSheet.create({
   taskDescription: {
     fontSize: 13,
     marginTop: 4,
-    opacity: 0.7,
+    opacity: 0.6,
   },
-  taskMetaContainer: {
+  taskMetaRow: {
     flexDirection: 'row',
     marginTop: 8,
     gap: 8,
@@ -753,204 +1032,209 @@ const styles = StyleSheet.create({
     gap: 4,
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 4,
-    backgroundColor: '#f0f0f0',
+    borderRadius: 6,
   },
-  metaText: {
+  metaTagText: {
     fontSize: 11,
     fontWeight: '500',
   },
-  overdueText: {
-    color: '#ff6b6b',
-    fontWeight: '700',
-  },
-  categoryTag: {
+  priorityTag: {
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 4,
+    borderRadius: 6,
     borderWidth: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
-  categoryTagText: {
+  priorityTagText: {
     fontSize: 11,
     fontWeight: '700',
-  },
-  categoryBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 4,
-    backgroundColor: '#e3f2fd',
-  },
-  categoryBadgeText: {
-    fontSize: 11,
-    fontWeight: '500',
-    color: '#1976d2',
   },
   editButton: {
     padding: 8,
   },
   expandedContent: {
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    marginTop: 2,
-    marginBottom: 8,
-    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    marginTop: -4,
+    marginBottom: 10,
+    borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#4CAF50',
-    borderTopWidth: 0,
-  },
-  subtaskSection: {
-    marginBottom: 16,
+    borderTopLeftRadius: 0,
+    borderTopRightRadius: 0,
+    gap: 10,
   },
   subtaskTitle: {
-    fontWeight: '600',
-    fontSize: 13,
-    marginBottom: 8,
+    fontWeight: '700',
+    fontSize: 14,
+    marginBottom: 4,
   },
   subtaskItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 8,
-    borderRadius: 4,
-    marginBottom: 6,
-    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    gap: 10,
   },
   subtaskText: {
     flex: 1,
     fontSize: 14,
   },
-  addSubtaskContainer: {
+  addSubtaskRow: {
     flexDirection: 'row',
-    gap: 8,
-    marginBottom: 12,
     alignItems: 'center',
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    gap: 10,
   },
   subtaskInput: {
     flex: 1,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
     fontSize: 14,
   },
-  addSubtaskBtn: {
-    padding: 4,
-  },
-  deleteTaskButton: {
+  viewOnMapButton: {
     flexDirection: 'row',
-    backgroundColor: '#ff6b6b',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 6,
+    backgroundColor: '#007AFF',
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
   },
-  deleteTaskButtonText: {
+  viewOnMapButtonText: {
     color: '#fff',
-    fontWeight: '600',
+    fontWeight: '700',
     fontSize: 14,
   },
-  modalOverlay: {
-    flex: 1,
-    paddingTop: 60,
+  deleteButton: {
+    flexDirection: 'row',
+    backgroundColor: '#ff6b6b',
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
   },
-  modalContent: {
+  deleteButtonText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  fab: {
+    position: 'absolute',
+    bottom: 24,
+    right: 20,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#4CAF50',
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+  },
+  modalContainer: {
     flex: 1,
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    paddingHorizontal: 16,
-    paddingTop: 16,
   },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 20,
+    paddingHorizontal: 20,
+    paddingTop: 56,
+    paddingBottom: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(128,128,128,0.2)',
   },
-  modalScroll: {
-    flex: 1,
+  modalTitle: {
+    fontSize: 17,
+    fontWeight: '700',
   },
-  modalLabel: {
+  modalSaveText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#4CAF50',
+  },
+  modalBody: {
+    paddingHorizontal: 20,
+    paddingTop: 20,
+  },
+  label: {
+    fontSize: 14,
     fontWeight: '600',
     marginBottom: 8,
-    fontSize: 14,
   },
-  modalInput: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 16,
-    marginBottom: 16,
-  },
-  modalInputMultiline: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 14,
-    marginBottom: 16,
-    minHeight: 80,
-    textAlignVertical: 'top',
-  },
-  priorityContainer: {
+  inputContainer: {
     flexDirection: 'row',
-    gap: 8,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    gap: 10,
+    marginBottom: 16,
+  },
+  inputContainerMultiline: {
+    alignItems: 'flex-start',
+  },
+  input: {
+    flex: 1,
+    fontSize: 16,
+  },
+  priorityRow: {
+    flexDirection: 'row',
+    gap: 10,
     marginBottom: 20,
   },
   priorityButton: {
     flex: 1,
     paddingVertical: 10,
-    borderRadius: 8,
+    borderRadius: 10,
     borderWidth: 2,
     alignItems: 'center',
   },
-  priorityButtonActive: {
-    opacity: 0.8,
-  },
-  priorityButtonText: {
-    fontWeight: '600',
-    fontSize: 13,
-  },
-  priorityButtonTextActive: {
-    color: '#fff',
-  },
-  categoryButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    marginRight: 8,
-  },
-  categoryButtonActive: {
-    backgroundColor: '#4CAF50',
-    borderColor: '#4CAF50',
-  },
-  categoryButtonText: {
-    fontSize: 13,
-    fontWeight: '500',
-  },
-  categoryButtonTextActive: {
-    color: '#fff',
-  },
   saveButton: {
+    flexDirection: 'row',
     backgroundColor: '#4CAF50',
     paddingVertical: 14,
-    borderRadius: 8,
+    borderRadius: 10,
     alignItems: 'center',
-    marginBottom: 30,
-    marginTop: 20,
+    justifyContent: 'center',
+    gap: 8,
   },
   saveButtonText: {
     color: '#fff',
     fontWeight: '700',
     fontSize: 16,
+  },
+  datePickerDoneButton: {
+    alignItems: 'center',
+    paddingVertical: 10,
+    marginBottom: 8,
+  },
+  locationPickerButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 14,
+    gap: 10,
+    marginBottom: 20,
+  },
+  mapPickerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingTop: 56,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(128,128,128,0.2)',
   },
 });

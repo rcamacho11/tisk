@@ -1,32 +1,44 @@
 import { api } from '../api/client'
-import { ApiResponse, CreateTaskInput, Task, UpdateTaskInput } from '../types/api'
-
-interface TasksResponse {
-  success: boolean
-  tasks?: Task[]
-  error?: string
-}
+import { ApiResponse, CreateTaskInput, FriendTask, Task, UpdateTaskInput } from '../types/api'
 
 class TaskService {
   async getTasks(): Promise<ApiResponse<Task[]>> {
     try {
-      const response = await api.get<TasksResponse>('/tasks')
-      
-      // If there's an error, return it
+      const response = await api.get<Task[]>('/tasks')
+
       if (response.error) {
         return { data: null, error: response.error }
       }
-      
-      // Extract the tasks array from the response
-      // The edge function returns { success: true, tasks: [...] }
-      const tasks = response.data?.tasks || []
-      
+
+      const tasks = Array.isArray(response.data) ? response.data : []
+
       return { data: tasks, error: null }
     } catch (error) {
       return {
         data: null,
         error: {
           message: error instanceof Error ? error.message : 'Failed to fetch tasks',
+        },
+      }
+    }
+  }
+
+  async getFriendsTasks(): Promise<ApiResponse<FriendTask[]>> {
+    try {
+      const response = await api.get<FriendTask[]>('/tasks/friends')
+
+      if (response.error) {
+        return { data: null, error: response.error }
+      }
+
+      const tasks = Array.isArray(response.data) ? response.data : []
+
+      return { data: tasks, error: null }
+    } catch (error) {
+      return {
+        data: null,
+        error: {
+          message: error instanceof Error ? error.message : 'Failed to fetch friend tasks',
         },
       }
     }
@@ -48,8 +60,8 @@ class TaskService {
     return api.delete<void>(`/tasks/${id}`)
   }
 
-  async completeTask(id: string): Promise<ApiResponse<Task>> {
-    return this.updateTask(id, { completed: true })
+  async completeTask(id: string, userLatitude: number, userLongitude: number): Promise<ApiResponse<Task>> {
+    return this.updateTask(id, { completed: true, user_latitude: userLatitude, user_longitude: userLongitude })
   }
 
   async uncompleteTask(id: string): Promise<ApiResponse<Task>> {
