@@ -337,10 +337,10 @@ export default function HomeScreen() {
           loc.coords.latitude, loc.coords.longitude,
           task.latitude!, task.longitude!
         );
-        if (distance > 5) {
+        if (distance > 25) {
           Alert.alert(
             'Too far away',
-            `You must be within 5 meters of the task location to complete it. You are ${Math.round(distance)}m away.`
+            `You must be within 25 meters of the task location to complete it. You are ${Math.round(distance)}m away.`
           );
           setCompletingTaskId(null);
           return;

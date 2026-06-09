@@ -101,7 +101,7 @@ const generateMapHTML = (latitude: number, longitude: number, isDark: boolean, f
       const escaped = t.title.replace(/'/g, "\\'").replace(/"/g, '&quot;');
       return `
         L.circle([${t.latitude}, ${t.longitude}], {
-          radius: 5,
+          radius: 25,
           color: '${priorityColor}',
           fillColor: '${priorityColor}',
           fillOpacity: 0.15,
@@ -115,7 +115,7 @@ const generateMapHTML = (latitude: number, longitude: number, isDark: boolean, f
             iconAnchor: [14, 40],
             popupAnchor: [0, -40]
           })
-        }).addTo(map).bindPopup('<div class="info"><strong>${escaped}</strong><br/><span style="color:${priorityColor};font-weight:600">${(t.priority || 'medium').charAt(0).toUpperCase() + (t.priority || 'medium').slice(1)} priority</span><br/><span style="font-size:12px;opacity:0.7">Be within 5m to complete</span></div>');
+        }).addTo(map).bindPopup('<div class="info"><strong>${escaped}</strong><br/><span style="color:${priorityColor};font-weight:600">${(t.priority || 'medium').charAt(0).toUpperCase() + (t.priority || 'medium').slice(1)} priority</span><br/><span style="font-size:12px;opacity:0.7">Be within 25m to complete</span></div>');
       `;
     }).join('\n');
 
@@ -126,7 +126,7 @@ const generateMapHTML = (latitude: number, longitude: number, isDark: boolean, f
       const owner = (t.profile?.username || '').replace(/'/g, "\\'");
       return `
         L.circle([${t.latitude}, ${t.longitude}], {
-          radius: 5,
+          radius: 25,
           color: '#007AFF',
           fillColor: '#007AFF',
           fillOpacity: 0.12,
@@ -140,7 +140,7 @@ const generateMapHTML = (latitude: number, longitude: number, isDark: boolean, f
             iconAnchor: [14, 40],
             popupAnchor: [0, -40]
           })
-        }).addTo(map).bindPopup('<div class="info"><strong>${escaped}</strong><br/><span style="color:#007AFF;font-weight:600">${owner}\\'s task</span><br/><span style="font-size:12px;opacity:0.7">5m radius</span></div>');
+        }).addTo(map).bindPopup('<div class="info"><strong>${escaped}</strong><br/><span style="color:#007AFF;font-weight:600">${owner}\\'s task</span><br/><span style="font-size:12px;opacity:0.7">25m radius</span></div>');
       `;
     }).join('\n');
 
