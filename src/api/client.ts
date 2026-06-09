@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import { ApiError, ApiResponse } from '../types/api'
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL as string
-const SUPABASE_KEY = process.env.EXPO_PUBLIC_SUPABASE_KEY as string
+const SUPABASE_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY as string
 
 class ApiClient {
   private baseUrl: string

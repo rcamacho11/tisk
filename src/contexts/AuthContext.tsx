@@ -3,14 +3,19 @@ import React, { createContext, useCallback, useContext, useEffect, useState } fr
 import { authService } from '../services/authService'
 import { Session, User } from '../types/api'
 
+interface AuthResult {
+  success: boolean
+  error?: string
+}
+
 interface AuthContextValue {
   user: User | null
   session: Session | null
   isLoading: boolean
   error: string | null
   isAuthenticated: boolean
-  signup: (email: string, password: string, name: string) => Promise<boolean>
-  login: (email: string, password: string) => Promise<boolean>
+  signup: (email: string, password: string, name: string) => Promise<AuthResult>
+  login: (email: string, password: string) => Promise<AuthResult>
   logout: () => Promise<void>
 }
 
@@ -42,41 +47,49 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     checkAuth()
   }, [])
 
-  const signup = useCallback(async (email: string, password: string, name: string) => {
+  const signup = useCallback(async (email: string, password: string, name: string): Promise<AuthResult> => {
     setIsLoading(true)
     setError(null)
     try {
       const response = await authService.signup({ email, password, name })
-      if (response.error) { setError(response.error); return false }
+      if (response.error) {
+        setError(response.error)
+        return { success: false, error: response.error }
+      }
       setSession(response.session)
       setUser(response.user)
       if (response.session?.access_token) {
         await AsyncStorage.setItem('supabase_access_token', response.session.access_token)
       }
-      return true
+      return { success: true }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Signup failed')
-      return false
+      const message = err instanceof Error ? err.message : 'Signup failed'
+      setError(message)
+      return { success: false, error: message }
     } finally {
       setIsLoading(false)
     }
   }, [])
 
-  const login = useCallback(async (email: string, password: string) => {
+  const login = useCallback(async (email: string, password: string): Promise<AuthResult> => {
     setIsLoading(true)
     setError(null)
     try {
       const response = await authService.login({ email, password })
-      if (response.error) { setError(response.error); return false }
+      if (response.error) {
+        setError(response.error)
+        return { success: false, error: response.error }
+      }
       setSession(response.session)
       setUser(response.user)
       if (response.session?.access_token) {
         await AsyncStorage.setItem('supabase_access_token', response.session.access_token)
       }
-      return true
+      return { success: true }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Login failed')
-      return false
+      const message = err instanceof Error ? err.message : 'Login failed'
+      setError(message)
+      return { success: false, error: message }
     } finally {
       setIsLoading(false)
     }

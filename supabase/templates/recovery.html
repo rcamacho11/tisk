@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <style>
+    body { margin: 0; padding: 0; background: #f2f2f7; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+    .container { max-width: 420px; margin: 40px auto; background: #fff; border-radius: 16px; padding: 40px 32px; text-align: center; }
+    .logo { font-size: 32px; font-weight: 800; color: #4CAF50; margin-bottom: 8px; }
+    h2 { font-size: 20px; color: #11181C; margin: 16px 0 8px; }
+    p { font-size: 14px; color: #8E8E93; line-height: 1.5; margin: 0 0 24px; }
+    .code { font-size: 36px; font-weight: 700; letter-spacing: 8px; color: #11181C; background: #f2f2f7; border-radius: 12px; padding: 16px 24px; display: inline-block; margin-bottom: 24px; }
+    .note { font-size: 12px; color: #C7C7CC; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="logo">Tisk</div>
+    <h2>Reset Your Password</h2>
+    <p>Enter this code in the app to reset your password:</p>
+    <div class="code">{{ .Token }}</div>
+    <p class="note">This code expires in 1 hour. If you didn't request this, you can safely ignore this email.</p>
+  </div>
+</body>
+</html>
