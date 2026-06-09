@@ -398,7 +398,7 @@ export default function HomeScreen() {
       filtered.sort((a, b) => {
         const dateA = new Date(a.dueDate || 0).getTime();
         const dateB = new Date(b.dueDate || 0).getTime();
-        return dateB - dateA;
+        return dateA - dateB;
       });
     }
 
