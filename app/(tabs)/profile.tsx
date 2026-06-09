@@ -12,6 +12,7 @@ import {
   Alert,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -29,12 +30,28 @@ export default function ProfileScreen() {
   const { data: friends, loading: friendsLoading, refetch: refetchFriends } = useApi(() =>
     friendService.getFriends()
   )
+  const { data: friendRequests, refetch: refetchRequests } = useApi(() =>
+    friendService.getFriendRequests()
+  )
+
+  const { mutate: updateSettings } = useMutation(
+    (data: Parameters<typeof settingsService.updateSettings>[0]) =>
+      settingsService.updateSettings(data)
+  )
 
   const [editMode, setEditMode] = useState(false)
   const [editData, setEditData] = useState<UpdateProfileInput>({
+    username: profile?.username || '',
     name: profile?.name || '',
     bio: profile?.bio || '',
   })
+
+  const handleToggleSetting = async (key: string, value: boolean) => {
+    const { error } = await updateSettings({ [key]: value })
+    if (error) {
+      Alert.alert('Error', error.message)
+    }
+  }
   const [showAddFriend, setShowAddFriend] = useState(false)
   const [friendUsername, setFriendUsername] = useState('')
 
@@ -43,7 +60,12 @@ export default function ProfileScreen() {
   )
 
   const { mutate: addFriend, loading: addingFriend } = useMutation(
-    (username: string) => friendService.addFriend({ friend_username: username })
+    (username: string) => friendService.addFriend({ username })
+  )
+
+  const { mutate: respondToRequest } = useMutation(
+    ({ id, status }: { id: string; status: 'accepted' | 'rejected' }) =>
+      friendService.respondToRequest(id, status)
   )
 
   const handleUpdateProfile = async () => {
@@ -74,8 +96,18 @@ export default function ProfileScreen() {
     refetchFriends()
   }
 
-  const handleRemoveFriend = async (friendId: string) => {
-    const { error } = await friendService.removeFriend(friendId)
+  const handleRespondToRequest = async (id: string, status: 'accepted' | 'rejected') => {
+    const { error } = await respondToRequest({ id, status })
+    if (error) {
+      Alert.alert('Error', error.message)
+      return
+    }
+    refetchRequests()
+    refetchFriends()
+  }
+
+  const handleRemoveFriend = async (friendshipId: string) => {
+    const { error } = await friendService.removeFriend(friendshipId)
     if (error) {
       Alert.alert('Error', error.message)
       return
@@ -123,6 +155,7 @@ export default function ProfileScreen() {
             <TouchableOpacity
               onPress={() => {
                 setEditData({
+                  username: profile?.username || '',
                   name: profile?.name || '',
                   bio: profile?.bio || '',
                 })
@@ -155,6 +188,19 @@ export default function ProfileScreen() {
       {editMode && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Edit Profile</Text>
+
+          <View style={styles.formGroup}>
+            <Text style={styles.label}>Username</Text>
+            <TextInput
+              style={styles.input}
+              value={editData.username}
+              onChangeText={(text) =>
+                setEditData({ ...editData, username: text })
+              }
+              placeholder="username"
+              autoCapitalize="none"
+            />
+          </View>
 
           <View style={styles.formGroup}>
             <Text style={styles.label}>Name</Text>
@@ -203,6 +249,37 @@ export default function ProfileScreen() {
         </View>
       )}
 
+      {/* Pending Friend Requests */}
+      {friendRequests && friendRequests.length > 0 && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Friend Requests ({friendRequests.length})</Text>
+          {friendRequests.map((request) => (
+            <View key={request.id} style={styles.friendItem}>
+              <View>
+                <Text style={styles.friendName}>{request.requester.username}</Text>
+                {request.requester.name && (
+                  <Text style={styles.friendSubtext}>{request.requester.name}</Text>
+                )}
+              </View>
+              <View style={styles.requestActions}>
+                <TouchableOpacity
+                  style={styles.acceptButton}
+                  onPress={() => handleRespondToRequest(request.id, 'accepted')}
+                >
+                  <Ionicons name="checkmark" size={18} color="#fff" />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.rejectButton}
+                  onPress={() => handleRespondToRequest(request.id, 'rejected')}
+                >
+                  <Ionicons name="close" size={18} color="#fff" />
+                </TouchableOpacity>
+              </View>
+            </View>
+          ))}
+        </View>
+      )}
+
       {/* Friends */}
       <View style={styles.section}>
         <View style={styles.sectionHeader}>
@@ -216,12 +293,15 @@ export default function ProfileScreen() {
           <ActivityIndicator color="#007AFF" />
         ) : friends && friends.length > 0 ? (
           friends.map((friend) => (
-            <View key={friend.id} style={styles.friendItem}>
+            <View key={friend.friendship_id} style={styles.friendItem}>
               <View>
-                <Text style={styles.friendName}>{friend.friend_username}</Text>
+                <Text style={styles.friendName}>{friend.username}</Text>
+                {friend.name && (
+                  <Text style={styles.friendSubtext}>{friend.name}</Text>
+                )}
               </View>
               <TouchableOpacity
-                onPress={() => handleRemoveFriend(friend.id)}
+                onPress={() => handleRemoveFriend(friend.friendship_id)}
               >
                 <Ionicons name="close-circle" size={24} color="#FF3B30" />
               </TouchableOpacity>
@@ -239,42 +319,45 @@ export default function ProfileScreen() {
         <View style={styles.settingRow}>
           <View>
             <Text style={styles.settingLabel}>Dark Mode</Text>
-            <Text style={styles.settingDescription}>
-              {settings?.dark_mode ? 'Enabled' : 'Disabled'}
-            </Text>
           </View>
-          <Ionicons
-            name={settings?.dark_mode ? 'moon' : 'sunny'}
-            size={24}
-            color="#007AFF"
+          <Switch
+            value={!!settings?.dark_mode}
+            onValueChange={(v) => handleToggleSetting('dark_mode', v)}
+            trackColor={{ true: '#007AFF' }}
           />
         </View>
 
         <View style={styles.settingRow}>
           <View>
             <Text style={styles.settingLabel}>Notifications</Text>
-            <Text style={styles.settingDescription}>
-              {settings?.notifications_enabled ? 'Enabled' : 'Disabled'}
-            </Text>
           </View>
-          <Ionicons
-            name={settings?.notifications_enabled ? 'notifications' : 'notifications-off'}
-            size={24}
-            color="#007AFF"
+          <Switch
+            value={!!settings?.notifications_enabled}
+            onValueChange={(v) => handleToggleSetting('notifications_enabled', v)}
+            trackColor={{ true: '#007AFF' }}
           />
         </View>
 
         <View style={styles.settingRow}>
           <View>
             <Text style={styles.settingLabel}>Private Profile</Text>
-            <Text style={styles.settingDescription}>
-              {settings?.private_profile ? 'Private' : 'Public'}
-            </Text>
           </View>
-          <Ionicons
-            name={settings?.private_profile ? 'lock-closed' : 'lock-open'}
-            size={24}
-            color="#007AFF"
+          <Switch
+            value={!!settings?.private_profile}
+            onValueChange={(v) => handleToggleSetting('private_profile', v)}
+            trackColor={{ true: '#007AFF' }}
+          />
+        </View>
+
+        <View style={styles.settingRow}>
+          <View>
+            <Text style={styles.settingLabel}>Share Location</Text>
+            <Text style={styles.settingDescription}>Let friends see your location on the map</Text>
+          </View>
+          <Switch
+            value={!!settings?.share_location}
+            onValueChange={(v) => handleToggleSetting('share_location', v)}
+            trackColor={{ true: '#34C759' }}
           />
         </View>
       </View>
@@ -483,6 +566,25 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: '#000',
+  },
+  friendSubtext: {
+    fontSize: 12,
+    color: '#999',
+    marginTop: 2,
+  },
+  requestActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  acceptButton: {
+    backgroundColor: '#34C759',
+    borderRadius: 16,
+    padding: 6,
+  },
+  rejectButton: {
+    backgroundColor: '#FF3B30',
+    borderRadius: 16,
+    padding: 6,
   },
   emptyText: {
     fontSize: 14,

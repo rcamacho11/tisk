@@ -13,15 +13,28 @@ import { WebView } from 'react-native-webview';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { locationService } from '@/src/services/locationService';
+import { FriendLocation } from '@/src/types/api';
+import { supabase } from '@/utils/supabase';
 
 interface LocationCoords {
   latitude: number;
   longitude: number;
 }
 
-const generateMapHTML = (latitude: number, longitude: number, isDark: boolean) => {
+const generateMapHTML = (latitude: number, longitude: number, isDark: boolean, friendLocations: FriendLocation[] = []) => {
   const bgColor = isDark ? '#1e1e1e' : '#ffffff';
   const textColor = isDark ? '#ffffff' : '#000000';
+  const friendMarkersJS = (Array.isArray(friendLocations) ? friendLocations : []).map((f) => `
+    L.marker([${f.latitude}, ${f.longitude}], {
+      icon: L.icon({
+        iconUrl: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIiIGhlaWdodD0iMzIiIHZpZXdCb3g9IjAgMCAzMiAzMiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSIxNiIgY3k9IjE2IiByPSIxMiIgZmlsbD0iIzAwN0FGRiIgc3Ryb2tlPSIjZmZmZmZmIiBzdHJva2Utd2lkdGg9IjIiLz48Y2lyY2xlIGN4PSIxNiIgY3k9IjE2IiByPSI0IiBmaWxsPSIjZmZmZmZmIi8+PC9zdmc+',
+        iconSize: [32, 32],
+        iconAnchor: [16, 16],
+        popupAnchor: [0, -16]
+      })
+    }).addTo(map).bindPopup('<div class="info"><strong>${f.profile.username}</strong>${f.profile.name ? '<br/>' + f.profile.name : ''}<br/>Updated: ${new Date(f.updated_at).toLocaleTimeString()}</div>');
+  `).join('\n');
 
   return `
     <!DOCTYPE html>
@@ -89,6 +102,9 @@ const generateMapHTML = (latitude: number, longitude: number, isDark: boolean) =
           radius: 20
         }).addTo(map);
 
+        // Add friend markers
+        ${friendMarkersJS}
+
         // Listen for location updates from React Native
         window.updateLocation = function(lat, lng) {
           marker.setLatLng([lat, lng]);
@@ -108,18 +124,43 @@ export default function MapScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [address, setAddress] = useState<string | null>(null);
+  const [friendLocations, setFriendLocations] = useState<FriendLocation[]>([]);
 
   useEffect(() => {
     requestLocationPermission();
+    fetchFriendLocations();
+
+    // Subscribe to real-time location updates
+    const channel = supabase
+      .channel('friend-locations')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'user_locations',
+      }, () => {
+        fetchFriendLocations();
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
   }, []);
+
+  const fetchFriendLocations = async () => {
+    const { data } = await locationService.getFriendsLocations();
+    if (data && Array.isArray(data)) setFriendLocations(data);
+  };
 
   const requestLocationPermission = async () => {
     try {
       setLoading(true);
-      const { status } = await Location.requestForegroundPermissionsAsync();
+      const { status, canAskAgain } = await Location.requestForegroundPermissionsAsync();
 
       if (status !== 'granted') {
-        setError('Permission to access location was denied');
+        if (!canAskAgain) {
+          setError('Location permission is permanently disabled. Please enable it in Settings.');
+        } else {
+          setError('Permission to access location was denied');
+        }
         setLoading(false);
         return;
       }
@@ -173,6 +214,15 @@ export default function MapScreen() {
         async (newLocation) => {
           setLocation(newLocation);
 
+          // Push location to backend
+          await locationService.sendLocation({
+            latitude: newLocation.coords.latitude,
+            longitude: newLocation.coords.longitude,
+            address: '',
+            accuracy: newLocation.coords.accuracy ?? 0,
+            timestamp: new Date(newLocation.timestamp).toISOString(),
+          });
+
           // Update map with new location
           if (webViewRef.current) {
             webViewRef.current.injectJavaScript(
@@ -220,16 +270,25 @@ export default function MapScreen() {
   }
 
   if (error) {
+    const isPermanentlyDenied = error.includes('permanently disabled');
     return (
       <ThemedView style={styles.container}>
         <ThemedView style={styles.errorContainer}>
           <Ionicons name="alert-circle-outline" size={48} color="#ff6b6b" />
           <ThemedText style={styles.errorText}>{error}</ThemedText>
-          <TouchableOpacity
-            style={styles.retryButton}
-            onPress={requestLocationPermission}>
-            <ThemedText style={styles.retryButtonText}>Try Again</ThemedText>
-          </TouchableOpacity>
+          {isPermanentlyDenied ? (
+            <TouchableOpacity
+              style={styles.retryButton}
+              onPress={() => Linking.openSettings()}>
+              <ThemedText style={styles.retryButtonText}>Open Settings</ThemedText>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              style={styles.retryButton}
+              onPress={requestLocationPermission}>
+              <ThemedText style={styles.retryButtonText}>Try Again</ThemedText>
+            </TouchableOpacity>
+          )}
         </ThemedView>
       </ThemedView>
     );
@@ -240,12 +299,14 @@ export default function MapScreen() {
       {location && (
         <>
           <WebView
+            key={friendLocations.map(f => f.user_id).join(',')}
             ref={webViewRef}
             source={{
               html: generateMapHTML(
                 location.coords.latitude,
                 location.coords.longitude,
-                colorScheme === 'dark'
+                colorScheme === 'dark',
+                friendLocations
               ),
             }}
             style={styles.map}

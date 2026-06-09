@@ -97,7 +97,16 @@ class ApiClient {
 
       const data = JSON.parse(text)
 
-      return { data, error: null }
+      // Extract the actual data from the response wrapper
+      let actualData = data
+      if (data && typeof data === 'object' && 'success' in data) {
+        const keys = Object.keys(data).filter(key => key !== 'success' && key !== 'error')
+        if (keys.length === 1) {
+          actualData = data[keys[0]]
+        }
+      }
+
+      return { data: actualData, error: null }
     } catch (error) {
       console.error(`${requestId} POST error`, error)
 
@@ -138,7 +147,19 @@ class ApiClient {
 
       const data = JSON.parse(text)
 
-      return { data, error: null }
+      // Extract the actual data from the response wrapper
+      // Backend returns { success: true, tasks: [...] } or { success: true, data: {...} }
+      let actualData = data
+      if (data && typeof data === 'object' && 'success' in data) {
+        // Look for any key that's not 'success' or 'error'
+        const dataKeys = Object.keys(data).filter(key => key !== 'success' && key !== 'error')
+        if (dataKeys.length === 1) {
+          actualData = data[dataKeys[0]]
+          console.log(`${requestId} Extracted key "${dataKeys[0]}":`, actualData)
+        }
+      }
+
+      return { data: actualData, error: null }
     } catch (error) {
       console.error(`${requestId} GET error`, error)
 
@@ -171,7 +192,16 @@ class ApiClient {
 
       const data = JSON.parse(text)
 
-      return { data, error: null }
+      // Extract the actual data from the response wrapper
+      let actualData = data
+      if (data && typeof data === 'object' && 'success' in data) {
+        const keys = Object.keys(data).filter(key => key !== 'success' && key !== 'error')
+        if (keys.length === 1) {
+          actualData = data[keys[0]]
+        }
+      }
+
+      return { data: actualData, error: null }
     } catch (error) {
       return {
         data: null,

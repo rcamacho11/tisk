@@ -10,15 +10,11 @@ Tisk is a cross-platform (iOS, Android, Web) task management app built with Expo
 
 Specialist docs live in `docs/` — read the relevant one before touching that area:
 
-| Area | File |
-|------|------|
-| Architecture overview | [`docs/architecture.md`](docs/architecture.md) |
-| Backend / Edge Functions / Supabase | [`docs/backend.md`](docs/backend.md) |
-| Frontend / Expo Router / screens | [`docs/frontend.md`](docs/frontend.md) |
-| Styling / theming / components | [`docs/styling.md`](docs/styling.md) |
-| Data models / TypeScript types | [`docs/data-models.md`](docs/data-models.md) |
-| Building APK / IPA / release | [`docs/building.md`](docs/building.md) |
-| Known bugs & resolutions | [`docs/known-bugs.md`](docs/known-bugs.md) |
+- [`docs/PURPOSE.md`](docs/PURPOSE.md) — goals, target users, planned features
+- [`docs/FRONTEND.md`](docs/FRONTEND.md) — screens, hooks, routing, component conventions
+- [`docs/BACKEND.md`](docs/BACKEND.md) — edge function routes, DB tables, auth flow
+- [`docs/STYLE.md`](docs/STYLE.md) — colors, theming, styling conventions
+- [`docs/ROADMAP.md`](docs/ROADMAP.md) — what's built, what's missing, known gaps
 
 ## Commands
 
@@ -49,7 +45,39 @@ npx supabase functions deploy rapid-task
 
 # Serve edge function locally for development
 npx supabase functions serve rapid-task --env-file .env.local
+
+# Push migrations
+supabase db push
+
+# Reset DB with migrations + seed
+supabase db reset
 ```
+
+## Architecture
+
+### Request Flow
+
+```
+UI screen
+  → service (src/services/*.ts)
+    → ApiClient (src/api/client.ts)   — attaches auth token from AsyncStorage
+      → rapid-task edge function       — validates JWT, talks to Postgres
+        → Supabase PostgreSQL
+```
+
+The edge function is the only path for database writes. The frontend Supabase client (`utils/supabase.ts`) is used only for Realtime subscriptions (location updates) — not for direct table queries.
+
+### Auth Token Storage
+
+`supabase_access_token` is stored in `AsyncStorage` and read by `ApiClient.getAuthToken()` on every request. The token is written on login/signup and cleared on logout or 401 response. `AuthContext` is the single source of auth state in the app.
+
+### Edge Function Response Envelope
+
+All responses follow `{ success: boolean, [entity]: data | error: string }`. `ApiClient` unwraps this — if there is exactly one key besides `success`/`error`, it is extracted as the returned `data`. Services should not need to unwrap manually, but `taskService` does its own unwrapping because the envelope key is `tasks` (plural) rather than `data`.
+
+### Routing
+
+Expo Router with file-based routing. `AuthGuard` in `app/_layout.tsx` redirects unauthenticated users to `/login` and authenticated users away from `/login`. The anchor screen is `login`.
 
 ## Environment Variables
 
@@ -68,10 +96,17 @@ EXPO_PUBLIC_SUPABASE_URL=https://<project>.supabase.co
 EXPO_PUBLIC_SUPABASE_KEY=sb_publishable_...
 ```
 
-## Key Architectural Decisions
+Edge function requires `SUPABASE_SERVICE_ROLE_KEY` in `supabase/functions/rapid-task/.env`.
+
+## Key Conventions
 
 - **Single edge function** (`rapid-task`) handles all API routes — no separate microservices.
 - **No global state library** — state lives in React hooks (`useAuth`, `useApi`, `useMutation`).
 - **Platform-specific files**: use `.ios.tsx` / `.tsx` suffixes for platform variants.
 - **TypeScript strict mode** is on — no implicit `any`, no unchecked nulls.
 - **Path alias**: `@/*` maps to the repo root (configured in `tsconfig.json`).
+- All new entity types belong in `src/types/api.ts`.
+- Services are plain classes/singletons — never hooks. Hooks in `src/hooks/` wrap services for React.
+- Use `useApi` for read-only fetches and `useMutation` for writes — both from `src/hooks/useApi.ts`.
+- Adding a new backend endpoint: add the route handler in `supabase/functions/rapid-task/index.ts`, add a method to the relevant service, add types to `src/types/api.ts`.
+- `EXPO_PUBLIC_` prefix is required for any env var used in the Expo bundle.
