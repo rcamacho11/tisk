@@ -1,119 +1,129 @@
-import { useApi, useMutation } from '@/src/hooks/useApi'
-import { useAuth } from '@/src/hooks/useAuth'
-import { friendService } from '@/src/services/friendService'
-import { profileService } from '@/src/services/profileService'
-import { settingsService } from '@/src/services/settingsService'
-import { UpdateProfileInput } from '@/src/types/api'
-import { Ionicons } from '@expo/vector-icons'
-import { router } from 'expo-router'
-import { useState } from 'react'
+import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
+import { useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Modal,
   ScrollView,
   StyleSheet,
   Switch,
-  Text,
   TextInput,
   TouchableOpacity,
   View,
-} from 'react-native'
+} from 'react-native';
+
+import { ThemedText } from '@/components/themed-text';
+import { ThemedView } from '@/components/themed-view';
+import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useApi, useMutation } from '@/src/hooks/useApi';
+import { useAuth } from '@/src/hooks/useAuth';
+import { friendService } from '@/src/services/friendService';
+import { profileService } from '@/src/services/profileService';
+import { settingsService } from '@/src/services/settingsService';
+import { UpdateProfileInput } from '@/src/types/api';
 
 export default function ProfileScreen() {
-  const { user, logout } = useAuth()
+  const colorScheme = useColorScheme();
+  const isDark = colorScheme === 'dark';
+  const borderColor = isDark ? '#333' : '#ddd';
+  const textColor = isDark ? '#fff' : '#000';
+  const placeholderColor = isDark ? '#666' : '#aaa';
+  const cardBg = isDark ? '#1e2022' : '#fff';
+  const separatorColor = isDark ? '#2a2a2a' : '#f0f0f0';
+
+  const { user, logout } = useAuth();
   const { data: profile, loading: profileLoading, refetch: refetchProfile } = useApi(() =>
     profileService.getProfile()
-  )
+  );
   const { data: settings, loading: settingsLoading } = useApi(() =>
     settingsService.getSettings()
-  )
+  );
   const { data: friends, loading: friendsLoading, refetch: refetchFriends } = useApi(() =>
     friendService.getFriends()
-  )
+  );
   const { data: friendRequests, refetch: refetchRequests } = useApi(() =>
     friendService.getFriendRequests()
-  )
+  );
 
   const { mutate: updateSettings } = useMutation(
     (data: Parameters<typeof settingsService.updateSettings>[0]) =>
       settingsService.updateSettings(data)
-  )
+  );
 
-  const [editMode, setEditMode] = useState(false)
+  const [editMode, setEditMode] = useState(false);
   const [editData, setEditData] = useState<UpdateProfileInput>({
     username: profile?.username || '',
     name: profile?.name || '',
     bio: profile?.bio || '',
-  })
+  });
 
   const handleToggleSetting = async (key: string, value: boolean) => {
-    const { error } = await updateSettings({ [key]: value })
-    if (error) {
-      Alert.alert('Error', error.message)
-    }
-  }
-  const [showAddFriend, setShowAddFriend] = useState(false)
-  const [friendUsername, setFriendUsername] = useState('')
+    const { error } = await updateSettings({ [key]: value });
+    if (error) Alert.alert('Error', error.message);
+  };
+
+  const [showAddFriend, setShowAddFriend] = useState(false);
+  const [friendUsername, setFriendUsername] = useState('');
 
   const { mutate: updateProfile, loading: updateLoading } = useMutation(
     (data: UpdateProfileInput) => profileService.updateProfile(data)
-  )
+  );
 
   const { mutate: addFriend, loading: addingFriend } = useMutation(
     (username: string) => friendService.addFriend({ username })
-  )
+  );
 
   const { mutate: respondToRequest } = useMutation(
     ({ id, status }: { id: string; status: 'accepted' | 'rejected' }) =>
       friendService.respondToRequest(id, status)
-  )
+  );
 
   const handleUpdateProfile = async () => {
-    const { error } = await updateProfile(editData)
+    const { error } = await updateProfile(editData);
     if (error) {
-      Alert.alert('Error', error.message)
-      return
+      Alert.alert('Error', error.message);
+      return;
     }
-    Alert.alert('Success', 'Profile updated')
-    setEditMode(false)
-    refetchProfile()
-  }
+    Alert.alert('Success', 'Profile updated');
+    setEditMode(false);
+    refetchProfile();
+  };
 
   const handleAddFriend = async () => {
     if (!friendUsername.trim()) {
-      Alert.alert('Error', 'Please enter a username')
-      return
+      Alert.alert('Error', 'Please enter a username');
+      return;
     }
-
-    const { error } = await addFriend(friendUsername)
+    const { error } = await addFriend(friendUsername);
     if (error) {
-      Alert.alert('Error', error.message)
-      return
+      Alert.alert('Error', error.message);
+      return;
     }
-    Alert.alert('Success', 'Friend added!')
-    setFriendUsername('')
-    setShowAddFriend(false)
-    refetchFriends()
-  }
+    Alert.alert('Success', 'Friend added!');
+    setFriendUsername('');
+    setShowAddFriend(false);
+    refetchFriends();
+  };
 
   const handleRespondToRequest = async (id: string, status: 'accepted' | 'rejected') => {
-    const { error } = await respondToRequest({ id, status })
+    const { error } = await respondToRequest({ id, status });
     if (error) {
-      Alert.alert('Error', error.message)
-      return
+      Alert.alert('Error', error.message);
+      return;
     }
-    refetchRequests()
-    refetchFriends()
-  }
+    refetchRequests();
+    refetchFriends();
+  };
 
   const handleRemoveFriend = async (friendshipId: string) => {
-    const { error } = await friendService.removeFriend(friendshipId)
+    const { error } = await friendService.removeFriend(friendshipId);
     if (error) {
-      Alert.alert('Error', error.message)
-      return
+      Alert.alert('Error', error.message);
+      return;
     }
-    refetchFriends()
-  }
+    refetchFriends();
+  };
 
   const handleLogout = async () => {
     Alert.alert('Logout', 'Are you sure?', [
@@ -121,455 +131,457 @@ export default function ProfileScreen() {
       {
         text: 'Logout',
         onPress: async () => {
-          await logout()
-          router.replace('/login')
+          await logout();
+          router.replace('/login');
         },
       },
-    ])
-  }
+    ]);
+  };
 
   if (profileLoading || settingsLoading) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color="#007AFF" />
-      </View>
-    )
+      <ThemedView style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+        <ActivityIndicator size="large" color="#4CAF50" />
+        <ThemedText style={{ marginTop: 12, opacity: 0.6 }}>Loading profile...</ThemedText>
+      </ThemedView>
+    );
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
-      {/* Profile Header */}
-      <View style={styles.header}>
-        <View style={styles.avatar}>
-          <Ionicons name="person-circle" size={80} color="#007AFF" />
-        </View>
-        <Text style={styles.name}>{profile?.name || user?.name || 'User'}</Text>
-        <Text style={styles.email}>{user?.email}</Text>
-      </View>
+    <ThemedView style={styles.container}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+        {/* Profile Header */}
+        <ThemedView style={styles.header}>
+          <ThemedView style={[styles.avatarCircle, { borderColor: '#4CAF50' }]}>
+            <Ionicons name="person" size={44} color="#4CAF50" />
+          </ThemedView>
+          <ThemedText type="subtitle" style={styles.name}>
+            {profile?.name || user?.name || 'User'}
+          </ThemedText>
+          <ThemedText style={styles.email}>{user?.email}</ThemedText>
+        </ThemedView>
 
-      {/* Profile Info */}
-      {!editMode && (
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Profile Information</Text>
-            <TouchableOpacity
-              onPress={() => {
-                setEditData({
-                  username: profile?.username || '',
-                  name: profile?.name || '',
-                  bio: profile?.bio || '',
-                })
-                setEditMode(true)
-              }}
-            >
-              <Text style={styles.editButton}>Edit</Text>
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.infoBox}>
-            <Text style={styles.infoLabel}>Bio</Text>
-            <Text style={styles.infoValue}>
-              {profile?.bio || 'No bio added'}
-            </Text>
-          </View>
-
-          <View style={styles.infoBox}>
-            <Text style={styles.infoLabel}>Member Since</Text>
-            <Text style={styles.infoValue}>
-              {profile?.updated_at
-                ? new Date(profile.updated_at).toLocaleDateString()
-                : 'N/A'}
-            </Text>
-          </View>
-        </View>
-      )}
-
-      {/* Edit Mode */}
-      {editMode && (
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Edit Profile</Text>
-
-          <View style={styles.formGroup}>
-            <Text style={styles.label}>Username</Text>
-            <TextInput
-              style={styles.input}
-              value={editData.username}
-              onChangeText={(text) =>
-                setEditData({ ...editData, username: text })
-              }
-              placeholder="username"
-              autoCapitalize="none"
-            />
-          </View>
-
-          <View style={styles.formGroup}>
-            <Text style={styles.label}>Name</Text>
-            <TextInput
-              style={styles.input}
-              value={editData.name}
-              onChangeText={(text) =>
-                setEditData({ ...editData, name: text })
-              }
-              placeholder="Your name"
-            />
-          </View>
-
-          <View style={styles.formGroup}>
-            <Text style={styles.label}>Bio</Text>
-            <TextInput
-              style={[styles.input, styles.textarea]}
-              value={editData.bio || ''}
-              onChangeText={(text) =>
-                setEditData({ ...editData, bio: text })
-              }
-              placeholder="Tell us about yourself"
-              multiline
-            />
-          </View>
-
-          <View style={styles.buttonGroup}>
-            <TouchableOpacity
-              style={[styles.button, styles.buttonSecondary]}
-              onPress={() => setEditMode(false)}
-            >
-              <Text style={styles.buttonText}>Cancel</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.button, styles.buttonPrimary]}
-              onPress={handleUpdateProfile}
-              disabled={updateLoading}
-            >
-              {updateLoading ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.buttonTextWhite}>Save Changes</Text>
-              )}
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
-
-      {/* Pending Friend Requests */}
-      {friendRequests && friendRequests.length > 0 && (
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Friend Requests ({friendRequests.length})</Text>
-          {friendRequests.map((request) => (
-            <View key={request.id} style={styles.friendItem}>
-              <View>
-                <Text style={styles.friendName}>{request.requester.username}</Text>
-                {request.requester.name && (
-                  <Text style={styles.friendSubtext}>{request.requester.name}</Text>
-                )}
-              </View>
-              <View style={styles.requestActions}>
-                <TouchableOpacity
-                  style={styles.acceptButton}
-                  onPress={() => handleRespondToRequest(request.id, 'accepted')}
-                >
-                  <Ionicons name="checkmark" size={18} color="#fff" />
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.rejectButton}
-                  onPress={() => handleRespondToRequest(request.id, 'rejected')}
-                >
-                  <Ionicons name="close" size={18} color="#fff" />
-                </TouchableOpacity>
-              </View>
-            </View>
-          ))}
-        </View>
-      )}
-
-      {/* Friends */}
-      <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Friends ({friends?.length || 0})</Text>
-          <TouchableOpacity onPress={() => setShowAddFriend(true)}>
-            <Ionicons name="add-circle" size={24} color="#007AFF" />
-          </TouchableOpacity>
-        </View>
-
-        {friendsLoading ? (
-          <ActivityIndicator color="#007AFF" />
-        ) : friends && friends.length > 0 ? (
-          friends.map((friend) => (
-            <View key={friend.friendship_id} style={styles.friendItem}>
-              <View>
-                <Text style={styles.friendName}>{friend.username}</Text>
-                {friend.name && (
-                  <Text style={styles.friendSubtext}>{friend.name}</Text>
-                )}
-              </View>
+        {/* Profile Info (read mode) */}
+        {!editMode && (
+          <ThemedView lightColor={cardBg} darkColor={cardBg} style={[styles.card, { borderColor }]}>
+            <ThemedView style={styles.cardHeader}>
+              <ThemedText type="defaultSemiBold" style={styles.cardTitle}>Profile Information</ThemedText>
               <TouchableOpacity
-                onPress={() => handleRemoveFriend(friend.friendship_id)}
+                onPress={() => {
+                  setEditData({
+                    username: profile?.username || '',
+                    name: profile?.name || '',
+                    bio: profile?.bio || '',
+                  });
+                  setEditMode(true);
+                }}
               >
-                <Ionicons name="close-circle" size={24} color="#FF3B30" />
+                <ThemedText style={styles.editLink}>Edit</ThemedText>
               </TouchableOpacity>
-            </View>
-          ))
-        ) : (
-          <Text style={styles.emptyText}>No friends yet</Text>
+            </ThemedView>
+
+            <ThemedView style={[styles.infoRow, { borderBottomColor: separatorColor }]}>
+              <ThemedText style={styles.infoLabel}>Username</ThemedText>
+              <ThemedText style={styles.infoValue}>{profile?.username || 'Not set'}</ThemedText>
+            </ThemedView>
+
+            <ThemedView style={[styles.infoRow, { borderBottomColor: separatorColor }]}>
+              <ThemedText style={styles.infoLabel}>Bio</ThemedText>
+              <ThemedText style={styles.infoValue}>{profile?.bio || 'No bio added'}</ThemedText>
+            </ThemedView>
+
+            <ThemedView style={styles.infoRow}>
+              <ThemedText style={styles.infoLabel}>Member Since</ThemedText>
+              <ThemedText style={styles.infoValue}>
+                {profile?.updated_at ? new Date(profile.updated_at).toLocaleDateString() : 'N/A'}
+              </ThemedText>
+            </ThemedView>
+          </ThemedView>
         )}
-      </View>
 
-      {/* Settings */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Preferences</Text>
+        {/* Edit Mode */}
+        {editMode && (
+          <ThemedView lightColor={cardBg} darkColor={cardBg} style={[styles.card, { borderColor }]}>
+            <ThemedText type="defaultSemiBold" style={[styles.cardTitle, { marginBottom: 16 }]}>
+              Edit Profile
+            </ThemedText>
 
-        <View style={styles.settingRow}>
-          <View>
-            <Text style={styles.settingLabel}>Dark Mode</Text>
-          </View>
-          <Switch
-            value={!!settings?.dark_mode}
-            onValueChange={(v) => handleToggleSetting('dark_mode', v)}
-            trackColor={{ true: '#007AFF' }}
-          />
-        </View>
+            <ThemedText style={styles.label}>Username</ThemedText>
+            <ThemedView style={[styles.inputContainer, { borderColor }]}>
+              <Ionicons name="at" size={20} color="#888" />
+              <TextInput
+                style={[styles.input, { color: textColor }]}
+                value={editData.username}
+                onChangeText={(text) => setEditData({ ...editData, username: text })}
+                placeholder="username"
+                placeholderTextColor={placeholderColor}
+                autoCapitalize="none"
+              />
+            </ThemedView>
 
-        <View style={styles.settingRow}>
-          <View>
-            <Text style={styles.settingLabel}>Notifications</Text>
-          </View>
-          <Switch
-            value={!!settings?.notifications_enabled}
-            onValueChange={(v) => handleToggleSetting('notifications_enabled', v)}
-            trackColor={{ true: '#007AFF' }}
-          />
-        </View>
+            <ThemedText style={styles.label}>Name</ThemedText>
+            <ThemedView style={[styles.inputContainer, { borderColor }]}>
+              <Ionicons name="person-outline" size={20} color="#888" />
+              <TextInput
+                style={[styles.input, { color: textColor }]}
+                value={editData.name}
+                onChangeText={(text) => setEditData({ ...editData, name: text })}
+                placeholder="Your name"
+                placeholderTextColor={placeholderColor}
+              />
+            </ThemedView>
 
-        <View style={styles.settingRow}>
-          <View>
-            <Text style={styles.settingLabel}>Private Profile</Text>
-          </View>
-          <Switch
-            value={!!settings?.private_profile}
-            onValueChange={(v) => handleToggleSetting('private_profile', v)}
-            trackColor={{ true: '#007AFF' }}
-          />
-        </View>
+            <ThemedText style={styles.label}>Bio</ThemedText>
+            <ThemedView style={[styles.inputContainer, styles.inputContainerMultiline, { borderColor }]}>
+              <Ionicons name="document-text-outline" size={20} color="#888" style={{ marginTop: 2 }} />
+              <TextInput
+                style={[styles.input, { color: textColor, minHeight: 60 }]}
+                value={editData.bio || ''}
+                onChangeText={(text) => setEditData({ ...editData, bio: text })}
+                placeholder="Tell us about yourself"
+                placeholderTextColor={placeholderColor}
+                multiline
+              />
+            </ThemedView>
 
-        <View style={styles.settingRow}>
-          <View>
-            <Text style={styles.settingLabel}>Share Location</Text>
-            <Text style={styles.settingDescription}>Let friends see your location on the map</Text>
-          </View>
-          <Switch
-            value={!!settings?.share_location}
-            onValueChange={(v) => handleToggleSetting('share_location', v)}
-            trackColor={{ true: '#34C759' }}
-          />
-        </View>
-      </View>
+            <ThemedView style={styles.buttonRow}>
+              <TouchableOpacity
+                style={[styles.secondaryButton, { borderColor }]}
+                onPress={() => setEditMode(false)}
+              >
+                <ThemedText style={styles.secondaryButtonText}>Cancel</ThemedText>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.primaryButton}
+                onPress={handleUpdateProfile}
+                disabled={updateLoading}
+              >
+                {updateLoading ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <>
+                    <Ionicons name="checkmark" size={18} color="#fff" />
+                    <ThemedText style={styles.primaryButtonText}>Save</ThemedText>
+                  </>
+                )}
+              </TouchableOpacity>
+            </ThemedView>
+          </ThemedView>
+        )}
 
-      {/* Logout Button */}
-      <View style={styles.section}>
-        <TouchableOpacity
-          style={styles.logoutButton}
-          onPress={handleLogout}
-        >
-          <Ionicons name="log-out" size={20} color="#FF3B30" />
-          <Text style={styles.logoutText}>Logout</Text>
-        </TouchableOpacity>
-      </View>
+        {/* Pending Friend Requests */}
+        {friendRequests && friendRequests.length > 0 && (
+          <ThemedView lightColor={cardBg} darkColor={cardBg} style={[styles.card, { borderColor }]}>
+            <ThemedText type="defaultSemiBold" style={[styles.cardTitle, { marginBottom: 12 }]}>
+              Friend Requests ({friendRequests.length})
+            </ThemedText>
+            {friendRequests.map((request) => (
+              <ThemedView key={request.id} style={[styles.friendRow, { borderBottomColor: separatorColor }]}>
+                <ThemedView style={{ flex: 1 }}>
+                  <ThemedText style={styles.friendName}>{request.requester.username}</ThemedText>
+                  {request.requester.name && (
+                    <ThemedText style={styles.friendSubtext}>{request.requester.name}</ThemedText>
+                  )}
+                </ThemedView>
+                <ThemedView style={styles.requestActions}>
+                  <TouchableOpacity
+                    style={styles.acceptButton}
+                    onPress={() => handleRespondToRequest(request.id, 'accepted')}
+                  >
+                    <Ionicons name="checkmark" size={18} color="#fff" />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.rejectButton}
+                    onPress={() => handleRespondToRequest(request.id, 'rejected')}
+                  >
+                    <Ionicons name="close" size={18} color="#fff" />
+                  </TouchableOpacity>
+                </ThemedView>
+              </ThemedView>
+            ))}
+          </ThemedView>
+        )}
+
+        {/* Friends */}
+        <ThemedView lightColor={cardBg} darkColor={cardBg} style={[styles.card, { borderColor }]}>
+          <ThemedView style={styles.cardHeader}>
+            <ThemedText type="defaultSemiBold" style={styles.cardTitle}>
+              Friends ({friends?.length || 0})
+            </ThemedText>
+            <TouchableOpacity onPress={() => setShowAddFriend(true)}>
+              <Ionicons name="person-add" size={22} color="#4CAF50" />
+            </TouchableOpacity>
+          </ThemedView>
+
+          {friendsLoading ? (
+            <ActivityIndicator color="#4CAF50" style={{ paddingVertical: 16 }} />
+          ) : friends && friends.length > 0 ? (
+            friends.map((friend) => (
+              <ThemedView key={friend.friendship_id} style={[styles.friendRow, { borderBottomColor: separatorColor }]}>
+                <ThemedView style={{ flex: 1 }}>
+                  <ThemedText style={styles.friendName}>{friend.username}</ThemedText>
+                  {friend.name && (
+                    <ThemedText style={styles.friendSubtext}>{friend.name}</ThemedText>
+                  )}
+                </ThemedView>
+                <TouchableOpacity onPress={() => handleRemoveFriend(friend.friendship_id)}>
+                  <Ionicons name="close-circle" size={22} color="#ff6b6b" />
+                </TouchableOpacity>
+              </ThemedView>
+            ))
+          ) : (
+            <ThemedText style={styles.emptyCardText}>No friends yet</ThemedText>
+          )}
+        </ThemedView>
+
+        {/* Settings */}
+        <ThemedView lightColor={cardBg} darkColor={cardBg} style={[styles.card, { borderColor }]}>
+          <ThemedText type="defaultSemiBold" style={[styles.cardTitle, { marginBottom: 8 }]}>
+            Preferences
+          </ThemedText>
+
+          <ThemedView style={[styles.settingRow, { borderBottomColor: separatorColor }]}>
+            <ThemedView style={{ flex: 1 }}>
+              <ThemedText style={styles.settingLabel}>Dark Mode</ThemedText>
+            </ThemedView>
+            <Switch
+              value={!!settings?.dark_mode}
+              onValueChange={(v) => handleToggleSetting('dark_mode', v)}
+              trackColor={{ true: '#4CAF50' }}
+            />
+          </ThemedView>
+
+          <ThemedView style={[styles.settingRow, { borderBottomColor: separatorColor }]}>
+            <ThemedView style={{ flex: 1 }}>
+              <ThemedText style={styles.settingLabel}>Notifications</ThemedText>
+            </ThemedView>
+            <Switch
+              value={!!settings?.notifications_enabled}
+              onValueChange={(v) => handleToggleSetting('notifications_enabled', v)}
+              trackColor={{ true: '#4CAF50' }}
+            />
+          </ThemedView>
+
+          <ThemedView style={[styles.settingRow, { borderBottomColor: separatorColor }]}>
+            <ThemedView style={{ flex: 1 }}>
+              <ThemedText style={styles.settingLabel}>Private Profile</ThemedText>
+            </ThemedView>
+            <Switch
+              value={!!settings?.private_profile}
+              onValueChange={(v) => handleToggleSetting('private_profile', v)}
+              trackColor={{ true: '#4CAF50' }}
+            />
+          </ThemedView>
+
+          <ThemedView style={styles.settingRow}>
+            <ThemedView style={{ flex: 1 }}>
+              <ThemedText style={styles.settingLabel}>Share Location</ThemedText>
+              <ThemedText style={styles.settingDescription}>
+                Let friends see your location on the map
+              </ThemedText>
+            </ThemedView>
+            <Switch
+              value={!!settings?.share_location}
+              onValueChange={(v) => handleToggleSetting('share_location', v)}
+              trackColor={{ true: '#4CAF50' }}
+            />
+          </ThemedView>
+        </ThemedView>
+
+        {/* Logout */}
+        <ThemedView lightColor={cardBg} darkColor={cardBg} style={[styles.card, { borderColor }]}>
+          <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+            <Ionicons name="log-out-outline" size={20} color="#ff6b6b" />
+            <ThemedText style={styles.logoutText}>Logout</ThemedText>
+          </TouchableOpacity>
+        </ThemedView>
+
+        <View style={{ height: 32 }} />
+      </ScrollView>
 
       {/* Add Friend Modal */}
-      {showAddFriend && (
+      <Modal visible={showAddFriend} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
-          <View style={styles.modal}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Add Friend</Text>
-              <TouchableOpacity onPress={() => setShowAddFriend(false)}>
-                <Ionicons name="close" size={24} color="#000" />
+          <ThemedView style={styles.modalContent}>
+            <ThemedView style={styles.modalHeader}>
+              <ThemedText type="subtitle">Add Friend</ThemedText>
+              <TouchableOpacity onPress={() => setShowAddFriend(false)} style={styles.modalCloseButton}>
+                <Ionicons name="close" size={24} color="#888" />
               </TouchableOpacity>
-            </View>
+            </ThemedView>
 
-            <TextInput
-              style={styles.input}
-              placeholder="Enter username"
-              value={friendUsername}
-              onChangeText={setFriendUsername}
-            />
+            <ThemedText style={styles.label}>Username</ThemedText>
+            <ThemedView style={[styles.inputContainer, { borderColor }]}>
+              <Ionicons name="person-outline" size={20} color="#888" />
+              <TextInput
+                style={[styles.input, { color: textColor }]}
+                placeholder="Enter username"
+                placeholderTextColor={placeholderColor}
+                value={friendUsername}
+                onChangeText={setFriendUsername}
+                autoCapitalize="none"
+              />
+            </ThemedView>
 
-            <View style={styles.buttonGroup}>
+            <ThemedView style={styles.buttonRow}>
               <TouchableOpacity
-                style={[styles.button, styles.buttonSecondary]}
+                style={[styles.secondaryButton, { borderColor }]}
                 onPress={() => setShowAddFriend(false)}
               >
-                <Text style={styles.buttonText}>Cancel</Text>
+                <ThemedText style={styles.secondaryButtonText}>Cancel</ThemedText>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.button, styles.buttonPrimary]}
+                style={styles.primaryButton}
                 onPress={handleAddFriend}
                 disabled={addingFriend}
               >
                 {addingFriend ? (
                   <ActivityIndicator color="#fff" />
                 ) : (
-                  <Text style={styles.buttonTextWhite}>Add</Text>
+                  <>
+                    <Ionicons name="person-add" size={18} color="#fff" />
+                    <ThemedText style={styles.primaryButtonText}>Add</ThemedText>
+                  </>
                 )}
               </TouchableOpacity>
-            </View>
-          </View>
+            </ThemedView>
+          </ThemedView>
         </View>
-      )}
-    </ScrollView>
-  )
+      </Modal>
+    </ThemedView>
+  );
 }
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f9f9f9',
   },
-  contentContainer: {
+  scrollContent: {
     paddingBottom: 32,
-  },
-  center: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   header: {
     alignItems: 'center',
     paddingVertical: 32,
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    paddingHorizontal: 20,
   },
-  avatar: {
+  avatarCircle: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    borderWidth: 3,
+    justifyContent: 'center',
+    alignItems: 'center',
     marginBottom: 16,
   },
   name: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#000',
     marginBottom: 4,
   },
   email: {
     fontSize: 14,
-    color: '#666',
+    opacity: 0.5,
   },
-  section: {
-    marginHorizontal: 16,
-    marginTop: 24,
-    backgroundColor: '#fff',
-    borderRadius: 8,
+  card: {
+    marginHorizontal: 20,
+    marginTop: 16,
+    borderRadius: 10,
+    borderWidth: 1,
     padding: 16,
   },
-  sectionHeader: {
+  cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 12,
   },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#000',
+  cardTitle: {
+    fontSize: 16,
   },
-  editButton: {
-    color: '#007AFF',
+  editLink: {
+    color: '#4CAF50',
     fontWeight: '600',
+    fontSize: 14,
   },
-  infoBox: {
+  infoRow: {
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
   },
   infoLabel: {
     fontSize: 12,
-    color: '#999',
+    opacity: 0.5,
     fontWeight: '500',
     marginBottom: 4,
   },
   infoValue: {
     fontSize: 14,
-    color: '#000',
-  },
-  formGroup: {
-    marginBottom: 16,
   },
   label: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#000',
     marginBottom: 8,
   },
-  input: {
+  inputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
+    borderRadius: 10,
     paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 14,
-    color: '#000',
+    paddingVertical: 12,
+    gap: 10,
     marginBottom: 16,
   },
-  textarea: {
-    height: 100,
-    textAlignVertical: 'top',
+  inputContainerMultiline: {
+    alignItems: 'flex-start',
   },
-  buttonGroup: {
+  input: {
+    flex: 1,
+    fontSize: 16,
+  },
+  buttonRow: {
     flexDirection: 'row',
     gap: 12,
-    marginTop: 20,
-  },
-  button: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  buttonPrimary: {
-    backgroundColor: '#007AFF',
-  },
-  buttonSecondary: {
-    backgroundColor: '#f0f0f0',
-  },
-  buttonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#000',
-  },
-  buttonTextWhite: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#fff',
-  },
-  settingRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-  },
-  settingLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#000',
-  },
-  settingDescription: {
-    fontSize: 12,
-    color: '#999',
     marginTop: 4,
   },
-  friendItem: {
+  primaryButton: {
+    flex: 1,
+    flexDirection: 'row',
+    backgroundColor: '#4CAF50',
+    paddingVertical: 14,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  primaryButtonText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 16,
+  },
+  secondaryButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+  },
+  secondaryButtonText: {
+    fontWeight: '600',
+    fontSize: 16,
+  },
+  friendRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
   },
   friendName: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#000',
   },
   friendSubtext: {
     fontSize: 12,
-    color: '#999',
+    opacity: 0.5,
     marginTop: 2,
   },
   requestActions: {
@@ -577,20 +589,42 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   acceptButton: {
-    backgroundColor: '#34C759',
+    backgroundColor: '#4CAF50',
     borderRadius: 16,
-    padding: 6,
+    width: 32,
+    height: 32,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   rejectButton: {
-    backgroundColor: '#FF3B30',
+    backgroundColor: '#ff6b6b',
     borderRadius: 16,
-    padding: 6,
+    width: 32,
+    height: 32,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  emptyText: {
+  emptyCardText: {
     fontSize: 14,
-    color: '#999',
+    opacity: 0.4,
     textAlign: 'center',
     paddingVertical: 16,
+  },
+  settingRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+  },
+  settingLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  settingDescription: {
+    fontSize: 12,
+    opacity: 0.5,
+    marginTop: 4,
   },
   logoutButton: {
     flexDirection: 'row',
@@ -602,33 +636,31 @@ const styles = StyleSheet.create({
   logoutText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#FF3B30',
+    color: '#ff6b6b',
   },
   modalOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
     justifyContent: 'flex-end',
   },
-  modal: {
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 24,
+  modalContent: {
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 32,
   },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 20,
   },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#000',
+  modalCloseButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });

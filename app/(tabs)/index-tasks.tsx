@@ -1,41 +1,51 @@
-import { useApi } from '@/src/hooks/useApi'
-import { taskService } from '@/src/services/taskService'
-import { CreateTaskInput, Task } from '@/src/types/api'
-import { Ionicons } from '@expo/vector-icons'
-import React, { useState } from 'react'
+import { Ionicons } from '@expo/vector-icons';
+import React, { useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    FlatList,
-    Modal,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
-} from 'react-native'
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+
+import { ThemedText } from '@/components/themed-text';
+import { ThemedView } from '@/components/themed-view';
+import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useApi } from '@/src/hooks/useApi';
+import { taskService } from '@/src/services/taskService';
+import { CreateTaskInput, Task } from '@/src/types/api';
 
 export default function TasksScreen() {
-  const { data: tasks, loading, error, refetch } = useApi(() => taskService.getTasks())
-  const [showAddModal, setShowAddModal] = useState(false)
+  const colorScheme = useColorScheme();
+  const isDark = colorScheme === 'dark';
+  const borderColor = isDark ? '#333' : '#ddd';
+  const textColor = isDark ? '#fff' : '#000';
+  const placeholderColor = isDark ? '#666' : '#aaa';
+  const chipBg = isDark ? '#2a2a2a' : '#f0f0f0';
+
+  const { data: tasks, loading, error, refetch } = useApi(() => taskService.getTasks());
+  const [showAddModal, setShowAddModal] = useState(false);
   const [newTask, setNewTask] = useState<CreateTaskInput>({
     title: '',
     description: '',
     priority: 'medium',
     category: 'work',
-  })
+  });
 
   const handleAddTask = async () => {
     if (!newTask.title.trim()) {
-      Alert.alert('Error', 'Please enter a task title')
-      return
+      Alert.alert('Error', 'Please enter a task title');
+      return;
     }
 
-    const { error } = await taskService.createTask(newTask)
+    const { error } = await taskService.createTask(newTask);
     if (error) {
-      Alert.alert('Error', error.message)
-      return
+      Alert.alert('Error', error.message);
+      return;
     }
 
     setNewTask({
@@ -43,248 +53,274 @@ export default function TasksScreen() {
       description: '',
       priority: 'medium',
       category: 'work',
-    })
-    setShowAddModal(false)
-    refetch()
-  }
+    });
+    setShowAddModal(false);
+    refetch();
+  };
 
   const handleCompleteTask = async (id: string) => {
-    const task = tasks?.find((t) => t.id === id)
-    if (!task) return
+    const task = tasks?.find((t) => t.id === id);
+    if (!task) return;
 
     const { error } = await taskService.updateTask(id, {
       completed: !task.completed,
-    })
+    });
 
     if (error) {
-      Alert.alert('Error', error.message)
-      return
+      Alert.alert('Error', error.message);
+      return;
     }
 
-    refetch()
-  }
+    refetch();
+  };
 
   const handleDeleteTask = async (id: string) => {
-    const { error } = await taskService.deleteTask(id)
+    const { error } = await taskService.deleteTask(id);
     if (error) {
-      Alert.alert('Error', error.message)
-      return
+      Alert.alert('Error', error.message);
+      return;
     }
-    refetch()
-  }
+    refetch();
+  };
 
-  const renderTaskItem = (task: Task) => (
-    <View key={task.id} style={styles.taskItem}>
+  const getPriorityColor = (priority?: string) => {
+    switch (priority) {
+      case 'high': return '#ff6b6b';
+      case 'medium': return '#ffa500';
+      case 'low': return '#4CAF50';
+      default: return '#888';
+    }
+  };
+
+  const renderTaskItem = ({ item: task }: { item: Task }) => (
+    <ThemedView style={[styles.taskCard, { borderColor }]}>
       <TouchableOpacity
         style={styles.checkbox}
         onPress={() => handleCompleteTask(task.id)}
       >
-        {task.completed && (
-          <Ionicons name="checkmark" size={20} color="#007AFF" />
-        )}
+        <Ionicons
+          name={task.completed ? 'checkbox' : 'square-outline'}
+          size={24}
+          color={task.completed ? '#4CAF50' : '#888'}
+        />
       </TouchableOpacity>
 
-      <View style={styles.taskContent}>
-        <Text
+      <ThemedView style={styles.taskContent}>
+        <ThemedText
           style={[
             styles.taskTitle,
             task.completed && styles.completedTask,
           ]}
         >
           {task.title}
-        </Text>
-        {task.description && (
-          <Text style={styles.taskDescription}>{task.description}</Text>
-        )}
-        <View style={styles.taskMeta}>
-          <Text style={styles.priority}>{task.priority}</Text>
-          <Text style={styles.category}>{task.category}</Text>
-        </View>
-      </View>
+        </ThemedText>
+        {task.description ? (
+          <ThemedText style={styles.taskDescription} numberOfLines={2}>
+            {task.description}
+          </ThemedText>
+        ) : null}
+        <ThemedView style={styles.taskMeta}>
+          {task.priority && (
+            <ThemedView
+              style={[
+                styles.metaTag,
+                { backgroundColor: getPriorityColor(task.priority) + '18', borderColor: getPriorityColor(task.priority) },
+              ]}
+            >
+              <ThemedText style={[styles.metaTagText, { color: getPriorityColor(task.priority) }]}>
+                {task.priority}
+              </ThemedText>
+            </ThemedView>
+          )}
+          {task.category && (
+            <ThemedView style={[styles.metaTag, { backgroundColor: chipBg }]}>
+              <ThemedText style={styles.metaTagText}>{task.category}</ThemedText>
+            </ThemedView>
+          )}
+        </ThemedView>
+      </ThemedView>
 
       <TouchableOpacity
         style={styles.deleteButton}
         onPress={() => handleDeleteTask(task.id)}
       >
-        <Ionicons name="trash-outline" size={20} color="#FF3B30" />
+        <Ionicons name="trash-outline" size={20} color="#ff6b6b" />
       </TouchableOpacity>
-    </View>
-  )
+    </ThemedView>
+  );
 
   if (loading && !tasks) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color="#007AFF" />
-      </View>
-    )
+      <ThemedView style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+        <ActivityIndicator size="large" color="#4CAF50" />
+        <ThemedText style={{ marginTop: 12, opacity: 0.6 }}>Loading tasks...</ThemedText>
+      </ThemedView>
+    );
   }
 
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>My Tasks</Text>
-        <TouchableOpacity
-          style={styles.addButton}
-          onPress={() => setShowAddModal(true)}
-        >
-          <Ionicons name="add" size={24} color="#fff" />
-        </TouchableOpacity>
-      </View>
+    <ThemedView style={styles.container}>
 
       {error && (
-        <Text style={styles.errorText}>{error.message}</Text>
+        <ThemedView style={styles.errorBanner}>
+          <Ionicons name="alert-circle" size={16} color="#ff6b6b" />
+          <ThemedText style={styles.errorText}>{error.message}</ThemedText>
+        </ThemedView>
       )}
 
       <FlatList
         data={tasks || []}
-        renderItem={({ item }) => renderTaskItem(item)}
+        renderItem={renderTaskItem}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContent}
+        showsVerticalScrollIndicator={false}
         ListEmptyComponent={
-          <View style={styles.emptyState}>
-            <Ionicons name="checkbox-outline" size={64} color="#ccc" />
-            <Text style={styles.emptyText}>No tasks yet</Text>
-            <Text style={styles.emptySubtext}>
+          <ThemedView style={styles.emptyState}>
+            <Ionicons
+              name="checkmark-done-circle-outline"
+              size={64}
+              color={isDark ? '#444' : '#ccc'}
+            />
+            <ThemedText style={styles.emptyText}>No tasks yet</ThemedText>
+            <ThemedText style={styles.emptySubtext}>
               Tap + to create your first task
-            </Text>
-          </View>
+            </ThemedText>
+          </ThemedView>
         }
       />
 
+      {/* Floating Add Button */}
+      <TouchableOpacity
+        style={styles.fab}
+        onPress={() => setShowAddModal(true)}
+        activeOpacity={0.8}
+      >
+        <Ionicons name="add" size={28} color="#fff" />
+      </TouchableOpacity>
+
+      {/* Add Task Modal */}
       <Modal visible={showAddModal} transparent animationType="slide">
-        <View style={styles.modalContainer}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>New Task</Text>
-              <TouchableOpacity onPress={() => setShowAddModal(false)}>
-                <Ionicons name="close" size={24} color="#000" />
+        <View style={styles.modalOverlay}>
+          <ThemedView style={styles.modalContent}>
+            <ThemedView style={styles.modalHeader}>
+              <ThemedText type="subtitle">New Task</ThemedText>
+              <TouchableOpacity onPress={() => setShowAddModal(false)} style={styles.modalCloseButton}>
+                <Ionicons name="close" size={24} color="#888" />
               </TouchableOpacity>
-            </View>
+            </ThemedView>
 
-            <ScrollView style={styles.modalForm}>
-              <Text style={styles.label}>Title *</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Enter task title"
-                value={newTask.title}
-                onChangeText={(text) =>
-                  setNewTask({ ...newTask, title: text })
-                }
-              />
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <ThemedText style={styles.label}>Title</ThemedText>
+              <ThemedView style={[styles.inputContainer, { borderColor }]}>
+                <Ionicons name="document-text-outline" size={20} color="#888" />
+                <TextInput
+                  style={[styles.input, { color: textColor }]}
+                  placeholder="Enter task title"
+                  placeholderTextColor={placeholderColor}
+                  value={newTask.title}
+                  onChangeText={(text) => setNewTask({ ...newTask, title: text })}
+                />
+              </ThemedView>
 
-              <Text style={styles.label}>Description</Text>
-              <TextInput
-                style={[styles.input, styles.textarea]}
-                placeholder="Task description"
-                value={newTask.description}
-                onChangeText={(text) =>
-                  setNewTask({ ...newTask, description: text })
-                }
-                multiline
-              />
+              <ThemedText style={styles.label}>Description</ThemedText>
+              <ThemedView style={[styles.inputContainer, styles.inputContainerMultiline, { borderColor }]}>
+                <Ionicons name="text-outline" size={20} color="#888" style={{ marginTop: 2 }} />
+                <TextInput
+                  style={[styles.input, { color: textColor, minHeight: 60 }]}
+                  placeholder="Task description"
+                  placeholderTextColor={placeholderColor}
+                  value={newTask.description}
+                  onChangeText={(text) => setNewTask({ ...newTask, description: text })}
+                  multiline
+                />
+              </ThemedView>
 
-              <Text style={styles.label}>Priority</Text>
-              <View style={styles.prioritySelector}>
+              <ThemedText style={styles.label}>Priority</ThemedText>
+              <ThemedView style={styles.priorityRow}>
                 {(['low', 'medium', 'high'] as const).map((p) => (
                   <TouchableOpacity
                     key={p}
                     style={[
-                      styles.priorityOption,
-                      newTask.priority === p &&
-                        styles.priorityOptionSelected,
+                      styles.priorityButton,
+                      {
+                        borderColor: getPriorityColor(p),
+                        backgroundColor: newTask.priority === p ? getPriorityColor(p) : 'transparent',
+                      },
                     ]}
-                    onPress={() =>
-                      setNewTask({ ...newTask, priority: p })
-                    }
+                    onPress={() => setNewTask({ ...newTask, priority: p })}
                   >
-                    <Text
-                      style={[
-                        styles.priorityOptionText,
-                        newTask.priority === p &&
-                          styles.priorityOptionTextSelected,
-                      ]}
+                    <ThemedText
+                      style={{
+                        fontWeight: '600',
+                        fontSize: 13,
+                        color: newTask.priority === p ? '#fff' : getPriorityColor(p),
+                      }}
                     >
-                      {p}
-                    </Text>
+                      {p.charAt(0).toUpperCase() + p.slice(1)}
+                    </ThemedText>
                   </TouchableOpacity>
                 ))}
-              </View>
+              </ThemedView>
 
-              <Text style={styles.label}>Category</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="e.g., work, personal"
-                value={newTask.category}
-                onChangeText={(text) =>
-                  setNewTask({ ...newTask, category: text })
-                }
-              />
+              <ThemedText style={styles.label}>Category</ThemedText>
+              <ThemedView style={[styles.inputContainer, { borderColor }]}>
+                <Ionicons name="folder-outline" size={20} color="#888" />
+                <TextInput
+                  style={[styles.input, { color: textColor }]}
+                  placeholder="e.g., work, personal"
+                  placeholderTextColor={placeholderColor}
+                  value={newTask.category}
+                  onChangeText={(text) => setNewTask({ ...newTask, category: text })}
+                />
+              </ThemedView>
+
+              <TouchableOpacity style={styles.submitButton} onPress={handleAddTask}>
+                <Ionicons name="add-circle" size={20} color="#fff" />
+                <ThemedText style={styles.submitButtonText}>Add Task</ThemedText>
+              </TouchableOpacity>
+
+              <View style={{ height: 30 }} />
             </ScrollView>
-
-            <TouchableOpacity
-              style={styles.submitButton}
-              onPress={handleAddTask}
-            >
-              <Text style={styles.submitButtonText}>Add Task</Text>
-            </TouchableOpacity>
-          </View>
+          </ThemedView>
         </View>
       </Modal>
-    </View>
-  )
+    </ThemedView>
+  );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f9f9f9',
+    paddingHorizontal: 20,
+    paddingTop: 16,
   },
-  header: {
+  errorBanner: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: '#ff6b6b18',
+    marginBottom: 12,
   },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#000',
-  },
-  addButton: {
-    backgroundColor: '#007AFF',
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    justifyContent: 'center',
-    alignItems: 'center',
+  errorText: {
+    color: '#ff6b6b',
+    fontSize: 14,
   },
   listContent: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingBottom: 80,
   },
-  taskItem: {
+  taskCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fff',
-    borderRadius: 8,
-    marginVertical: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 12,
+    borderRadius: 10,
+    marginBottom: 10,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
     borderWidth: 1,
-    borderColor: '#f0f0f0',
   },
   checkbox: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: '#ddd',
-    justifyContent: 'center',
-    alignItems: 'center',
     marginRight: 12,
   },
   taskContent: {
@@ -293,15 +329,14 @@ const styles = StyleSheet.create({
   taskTitle: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#000',
   },
   completedTask: {
     textDecorationLine: 'line-through',
-    color: '#999',
+    opacity: 0.5,
   },
   taskDescription: {
-    fontSize: 14,
-    color: '#666',
+    fontSize: 13,
+    opacity: 0.6,
     marginTop: 4,
   },
   taskMeta: {
@@ -309,135 +344,125 @@ const styles = StyleSheet.create({
     marginTop: 8,
     gap: 8,
   },
-  priority: {
-    fontSize: 12,
-    backgroundColor: '#f0f0f0',
+  metaTag: {
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 4,
-    color: '#666',
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'transparent',
   },
-  category: {
+  metaTagText: {
     fontSize: 12,
-    backgroundColor: '#f0f0f0',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 4,
-    color: '#666',
+    fontWeight: '500',
   },
   deleteButton: {
     paddingLeft: 12,
   },
-  center: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  errorText: {
-    color: '#FF3B30',
-    padding: 12,
-    textAlign: 'center',
-  },
   emptyState: {
-    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 100,
+    paddingVertical: 80,
   },
   emptyText: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#999',
+    opacity: 0.5,
     marginTop: 16,
   },
   emptySubtext: {
     fontSize: 14,
-    color: '#ccc',
-    marginTop: 8,
+    opacity: 0.4,
+    marginTop: 6,
   },
-  modalContainer: {
+  fab: {
+    position: 'absolute',
+    bottom: 24,
+    right: 20,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#4CAF50',
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+  },
+  modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
     justifyContent: 'flex-end',
   },
   modalContent: {
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    paddingHorizontal: 16,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 20,
+    paddingTop: 20,
     paddingBottom: 32,
-    maxHeight: '80%',
+    maxHeight: '85%',
   },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    marginBottom: 20,
   },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#000',
-  },
-  modalForm: {
-    marginVertical: 16,
+  modalCloseButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   label: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#000',
     marginBottom: 8,
   },
-  input: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    marginBottom: 16,
-    fontSize: 14,
-    color: '#000',
-  },
-  textarea: {
-    height: 80,
-    textAlignVertical: 'top',
-  },
-  prioritySelector: {
+  inputContainer: {
     flexDirection: 'row',
-    gap: 8,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    gap: 10,
     marginBottom: 16,
   },
-  priorityOption: {
+  inputContainerMultiline: {
+    alignItems: 'flex-start',
+  },
+  input: {
+    flex: 1,
+    fontSize: 16,
+  },
+  priorityRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 20,
+  },
+  priorityButton: {
     flex: 1,
     paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#ddd',
+    borderRadius: 10,
+    borderWidth: 2,
     alignItems: 'center',
-  },
-  priorityOptionSelected: {
-    backgroundColor: '#007AFF',
-    borderColor: '#007AFF',
-  },
-  priorityOptionText: {
-    color: '#000',
-    fontWeight: '500',
-  },
-  priorityOptionTextSelected: {
-    color: '#fff',
   },
   submitButton: {
-    backgroundColor: '#007AFF',
-    paddingVertical: 12,
-    borderRadius: 8,
+    flexDirection: 'row',
+    backgroundColor: '#4CAF50',
+    paddingVertical: 14,
+    borderRadius: 10,
     alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 4,
   },
   submitButtonText: {
     color: '#fff',
+    fontWeight: '700',
     fontSize: 16,
-    fontWeight: 'bold',
   },
-})
+});

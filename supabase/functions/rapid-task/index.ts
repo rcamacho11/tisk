@@ -580,7 +580,7 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ success: true, data })
     }
 
-    // GET /location/friends — get accepted friends' locations (share_location = true only)
+    // GET /location/friends — get accepted friends' locations (includes last known for disabled sharing)
     if (endpoint === "/location/friends" && req.method === "GET") {
       console.log("[Location] GET /location/friends")
 
@@ -630,15 +630,14 @@ Deno.serve(async (req: Request) => {
       const profileMap = new Map((profiles ?? []).map((p: Json) => [p.user_id, p]))
       const settingsMap = new Map((settings ?? []).map((s: Json) => [s.user_id, s]))
 
-      // Only include friends who have share_location = true
-      const filtered = (locations ?? [])
-        .filter((l: Json) => (settingsMap.get(l.user_id as string) as Json)?.share_location === true)
-        .map((l: Json) => ({
-          ...l,
-          profile: profileMap.get(l.user_id as string) ?? {},
-        }))
+      // Return all friend locations — include sharing_enabled flag so frontend can show "last seen"
+      const result = (locations ?? []).map((l: Json) => ({
+        ...l,
+        sharing_enabled: (settingsMap.get(l.user_id as string) as Json)?.share_location === true,
+        profile: profileMap.get(l.user_id as string) ?? {},
+      }))
 
-      return jsonResponse({ success: true, locations: filtered })
+      return jsonResponse({ success: true, locations: result })
     }
 
     /* ---------------- PROFILE ROUTES ---------------- */
