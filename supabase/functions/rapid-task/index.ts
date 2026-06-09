@@ -105,8 +105,29 @@ Deno.serve(async (req: Request) => {
 
     if (endpoint === "/auth") {
       const body = await parseBody(req)
-
       const email = body.email as string
+
+      if (action === "check-email") {
+        if (!email) {
+          return jsonResponse({ success: false, error: "Email required" }, 400)
+        }
+
+        const res = await fetch(
+          `${SUPABASE_URL}/auth/v1/admin/users?filter=${encodeURIComponent(email)}&page=1&per_page=5`,
+          {
+            headers: {
+              Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+              apikey: SERVICE_ROLE_KEY,
+            },
+          }
+        )
+        const result = await res.json()
+        const exists = Array.isArray(result.users) &&
+          result.users.some((u: Record<string, unknown>) => u.email === email)
+
+        return jsonResponse({ success: true, exists })
+      }
+
       const password = body.password as string
       const name = body.name as string
 

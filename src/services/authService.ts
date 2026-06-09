@@ -1,3 +1,4 @@
+import { api } from '../api/client'
 import { supabase } from '../../utils/supabase'
 import { AuthResponse, Session, SignInInput, SignUpInput, User } from '../types/api'
 
@@ -43,8 +44,19 @@ class AuthService {
       })
 
       if (error) {
-        console.error('[AuthService] ❌ Signup auth error:', error.message)
+        console.log('[AuthService] Signup failed:', error.message)
         return { session: null, user: null, error: error.message }
+      }
+
+      // Supabase returns a user with empty identities (and no session) when
+      // the email is already registered — it does this to prevent enumeration.
+      if (data.user && (!data.user.identities || data.user.identities.length === 0)) {
+        return { session: null, user: null, error: 'Email already in use' }
+      }
+
+      // Signup succeeded but no session means email confirmation is required.
+      if (data.user && !data.session) {
+        return { session: null, user: null, error: 'Check your email to confirm your account before signing in' }
       }
 
       // Transform Supabase response to our types
@@ -75,7 +87,7 @@ class AuthService {
       })
 
       if (error) {
-        console.error('[AuthService] Login error:', error.message)
+        console.log('[AuthService] Login failed:', error.message)
         return { session: null, user: null, error: error.message }
       }
 
@@ -132,6 +144,69 @@ class AuthService {
   async isAuthenticated(): Promise<boolean> {
     const session = await this.getSession()
     return !!session
+  }
+
+  async sendResetCode(email: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email)
+      if (error) {
+        console.log('[AuthService] Send reset code failed:', error.message)
+        return { success: false, error: error.message }
+      }
+      console.log('[AuthService] Reset code sent to:', email)
+      return { success: true }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to send reset code'
+      return { success: false, error: message }
+    }
+  }
+
+  async verifyResetCode(email: string, code: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const { error } = await supabase.auth.verifyOtp({
+        email,
+        token: code,
+        type: 'recovery',
+      })
+      if (error) {
+        console.log('[AuthService] Verify reset code failed:', error.message)
+        return { success: false, error: error.message }
+      }
+      console.log('[AuthService] Reset code verified for:', email)
+      return { success: true }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to verify code'
+      return { success: false, error: message }
+    }
+  }
+
+  async updatePassword(newPassword: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const { error } = await supabase.auth.updateUser({ password: newPassword })
+      if (error) {
+        console.log('[AuthService] Update password failed:', error.message)
+        return { success: false, error: error.message }
+      }
+      console.log('[AuthService] Password updated successfully')
+      return { success: true }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to update password'
+      return { success: false, error: message }
+    }
+  }
+
+  async checkEmailExists(email: string): Promise<boolean> {
+    try {
+      const response = await api.post<boolean>(
+        '/auth?action=check-email',
+        { email },
+        { authenticated: false },
+      )
+      // ApiClient unwraps { success, exists } → the value of `exists` directly
+      return response.data === true
+    } catch {
+      return false
+    }
   }
 }
 
