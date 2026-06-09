@@ -172,13 +172,7 @@ export default function MapScreen() {
         },
         async (newLocation) => {
           setLocation(newLocation);
-          
-          // Update location on backend
-          await updateLocation({
-            latitude: newLocation.coords.latitude,
-            longitude: newLocation.coords.longitude,
-          });
-          
+
           // Update map with new location
           if (webViewRef.current) {
             webViewRef.current.injectJavaScript(

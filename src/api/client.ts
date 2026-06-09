@@ -125,7 +125,18 @@ class ApiClient {
         headers,
       })
 
-      const data = await response.json()
+      const text = await response.text()
+
+      console.log(`${requestId} Status:`, response.status)
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          await AsyncStorage.removeItem('supabase_access_token')
+        }
+        throw new Error(text)
+      }
+
+      const data = JSON.parse(text)
 
       return { data, error: null }
     } catch (error) {
@@ -152,7 +163,13 @@ class ApiClient {
         body: JSON.stringify(body),
       })
 
-      const data = await response.json()
+      const text = await response.text()
+
+      if (!response.ok) {
+        throw new Error(text)
+      }
+
+      const data = JSON.parse(text)
 
       return { data, error: null }
     } catch (error) {
@@ -175,8 +192,13 @@ class ApiClient {
         headers,
       })
 
+      const text = await response.text()
 
-      const data = await response.json()
+      if (!response.ok) {
+        throw new Error(text)
+      }
+
+      const data = JSON.parse(text)
 
       return { data, error: null }
     } catch (error) {
