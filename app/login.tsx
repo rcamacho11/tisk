@@ -1,30 +1,50 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
   StyleSheet,
-  Text,
   TextInput,
-  TouchableOpacity
+  TouchableOpacity,
+  View,
 } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useAuth } from '@/src/hooks/useAuth';
+import { authService } from '@/src/services/authService';
+
+type BannerType = 'error' | 'info' | 'success';
+type ScreenMode = 'login' | 'signup' | 'forgot-email' | 'forgot-code' | 'forgot-password';
+
+interface Banner {
+  type: BannerType;
+  title: string;
+  message: string;
+  action?: { label: string; onPress: () => void };
+}
+
+const OTP_LENGTH = 6;
 
 export default function LoginScreen() {
   const router = useRouter();
-  const { login, signup, isLoading, error } = useAuth();
+  const { login, signup, isLoading } = useAuth();
   const colorScheme = useColorScheme();
-  const [isLoginMode, setIsLoginMode] = useState(true);
+  const dark = colorScheme === 'dark';
+  const [mode, setMode] = useState<ScreenMode>('login');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [banner, setBanner] = useState<Banner | null>(null);
+  const [isSending, setIsSending] = useState(false);
+  const [otpValue, setOtpValue] = useState('');
+  const [resetEmail, setResetEmail] = useState('');
+  const otpInputRef = useRef<TextInput | null>(null);
+  const bannerOpacity = useRef(new Animated.Value(0)).current;
 
   const [formData, setFormData] = useState({
     email: '',
@@ -33,390 +53,616 @@ export default function LoginScreen() {
     name: '',
   });
 
-  const validateEmail = (email: string) => {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return emailRegex.test(email);
+  const colors = {
+    bg: dark ? '#151718' : '#F2F2F7',
+    card: dark ? '#1C1E1F' : '#FFFFFF',
+    inputBg: dark ? '#2C2E2F' : '#F6F6F6',
+    inputBorder: dark ? '#3A3C3D' : '#E5E5EA',
+    text: dark ? '#ECEDEE' : '#11181C',
+    textSecondary: dark ? '#9BA1A6' : '#8E8E93',
+    placeholder: dark ? '#6C7075' : '#C7C7CC',
+  };
+
+  const showBanner = useCallback((b: Banner) => {
+    setBanner(b);
+    bannerOpacity.setValue(0);
+    Animated.timing(bannerOpacity, {
+      toValue: 1,
+      duration: 250,
+      useNativeDriver: true,
+    }).start();
+  }, [bannerOpacity]);
+
+  const hideBanner = useCallback(() => {
+    Animated.timing(bannerOpacity, {
+      toValue: 0,
+      duration: 200,
+      useNativeDriver: true,
+    }).start(() => setBanner(null));
+  }, [bannerOpacity]);
+
+  const validateEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+
+  const friendlyError = (raw: string): string => {
+    const lower = raw.toLowerCase();
+    if (lower.includes('email not confirmed') || lower.includes('confirm your account'))
+      return 'Please check your email and confirm your account before logging in.';
+    if (lower.includes('rate limit') || lower.includes('too many requests'))
+      return 'Too many attempts. Please wait a moment and try again.';
+    if (lower.includes('network') || lower.includes('fetch'))
+      return 'Unable to connect. Please check your internet connection.';
+    if (lower.includes('invalid api key'))
+      return 'App configuration error. Please contact support.';
+    if (lower.includes('token has expired') || lower.includes('otp_expired'))
+      return 'This code has expired. Please request a new one.';
+    if (lower.includes('otp_disabled'))
+      return 'Verification codes are not enabled. Please contact support.';
+    return raw;
+  };
+
+  const switchMode = (newMode: ScreenMode, keepEmail = false) => {
+    hideBanner();
+    const email = keepEmail ? formData.email : '';
+    setMode(newMode);
+    resetForm();
+    if (email) setFormData(f => ({ ...f, email }));
   };
 
   const handleLogin = async () => {
+    hideBanner();
     if (!formData.email.trim() || !formData.password.trim()) {
-      Alert.alert('Error', 'Please fill in all fields');
+      showBanner({ type: 'error', title: 'Missing Fields', message: 'Please fill in your email and password.' });
       return;
     }
-
     if (!validateEmail(formData.email)) {
-      Alert.alert('Error', 'Please enter a valid email');
+      showBanner({ type: 'error', title: 'Invalid Email', message: 'Please enter a valid email address.' });
       return;
     }
 
-    const success = await login(formData.email, formData.password);
-    if (success) {
-      router.replace('/(tabs)');
+    const result = await login(formData.email, formData.password);
+    if (result.success) { router.replace('/(tabs)'); return; }
+
+    const raw = result.error || '';
+    if (raw.toLowerCase().includes('invalid login credentials')) {
+      const exists = await authService.checkEmailExists(formData.email);
+      if (exists) {
+        showBanner({
+          type: 'error', title: 'Incorrect Password',
+          message: 'The password you entered is incorrect.',
+          action: { label: 'Forgot Password?', onPress: () => goToForgot(formData.email) },
+        });
+      } else {
+        showBanner({
+          type: 'info', title: 'No Account Found',
+          message: 'No account exists with this email.',
+          action: { label: 'Create Account', onPress: () => switchMode('signup', true) },
+        });
+      }
     } else {
-      Alert.alert('Login Failed', error || 'Unable to sign in');
+      showBanner({ type: 'error', title: 'Login Failed', message: friendlyError(raw) });
     }
   };
 
   const handleSignup = async () => {
-    if (
-      !formData.name.trim() ||
-      !formData.email.trim() ||
-      !formData.password.trim() ||
-      !formData.confirmPassword.trim()
-    ) {
-      Alert.alert('Error', 'Please fill in all fields');
+    hideBanner();
+    if (!formData.name.trim() || !formData.email.trim() || !formData.password.trim() || !formData.confirmPassword.trim()) {
+      showBanner({ type: 'error', title: 'Missing Fields', message: 'Please fill in all fields.' });
       return;
     }
-
     if (!validateEmail(formData.email)) {
-      Alert.alert('Error', 'Please enter a valid email');
+      showBanner({ type: 'error', title: 'Invalid Email', message: 'Please enter a valid email address.' });
       return;
     }
-
     if (formData.password.length < 6) {
-      Alert.alert('Error', 'Password must be at least 6 characters');
+      showBanner({ type: 'error', title: 'Weak Password', message: 'Password must be at least 6 characters.' });
       return;
     }
-
     if (formData.password !== formData.confirmPassword) {
-      Alert.alert('Error', 'Passwords do not match');
+      showBanner({ type: 'error', title: 'Mismatch', message: 'Passwords do not match.' });
       return;
     }
 
-    const success = await signup(formData.email, formData.password, formData.name);
-    if (success) {
+    const result = await signup(formData.email, formData.password, formData.name);
+    if (result.success) {
       Alert.alert('Success', 'Account created! Logging you in...');
       router.replace('/(tabs)');
     } else {
-      Alert.alert('Signup Failed', error || 'Unable to create account');
+      const raw = result.error || 'Unable to create account';
+      if (raw.includes('already in use') || raw.includes('already registered')) {
+        showBanner({
+          type: 'info', title: 'Email Already in Use',
+          message: 'An account with this email already exists.',
+          action: { label: 'Login Instead', onPress: () => switchMode('login', true) },
+        });
+      } else {
+        showBanner({ type: 'error', title: 'Signup Failed', message: friendlyError(raw) });
+      }
     }
   };
 
+  const goToForgot = (email: string) => {
+    hideBanner();
+    setResetEmail(email);
+    setFormData(f => ({ ...f, email }));
+    setMode('forgot-email');
+  };
+
+  const handleSendCode = async () => {
+    hideBanner();
+    const email = formData.email.trim();
+    if (!email) {
+      showBanner({ type: 'error', title: 'Missing Email', message: 'Please enter your email address.' });
+      return;
+    }
+    if (!validateEmail(email)) {
+      showBanner({ type: 'error', title: 'Invalid Email', message: 'Please enter a valid email address.' });
+      return;
+    }
+
+    setIsSending(true);
+    try {
+      const exists = await authService.checkEmailExists(email);
+      if (!exists) {
+        showBanner({
+          type: 'info', title: 'No Account Found',
+          message: 'No account exists with this email.',
+          action: { label: 'Create Account', onPress: () => switchMode('signup', true) },
+        });
+        return;
+      }
+
+      const result = await authService.sendResetCode(email);
+      if (result.success) {
+        setResetEmail(email);
+        setOtpValue('');
+        setMode('forgot-code');
+        showBanner({
+          type: 'success', title: 'Code Sent',
+          message: `We sent a 6-digit code to ${email}. Check your inbox.`,
+        });
+      } else {
+        showBanner({ type: 'error', title: 'Failed to Send', message: friendlyError(result.error || 'Please try again.') });
+      }
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  const handleVerifyCode = async () => {
+    hideBanner();
+    const code = otpValue.replace(/[^0-9]/g, '');
+    if (code.length < OTP_LENGTH) {
+      showBanner({ type: 'error', title: 'Incomplete Code', message: 'Please enter the full 6-digit code.' });
+      return;
+    }
+
+    setIsSending(true);
+    try {
+      const result = await authService.verifyResetCode(resetEmail, code);
+      if (result.success) {
+        setFormData(f => ({ ...f, password: '', confirmPassword: '' }));
+        setShowPassword(false);
+        setShowConfirmPassword(false);
+        setMode('forgot-password');
+      } else {
+        const msg = result.error || '';
+        if (msg.toLowerCase().includes('expired')) {
+          showBanner({
+            type: 'error', title: 'Code Expired',
+            message: 'This code has expired.',
+            action: { label: 'Resend Code', onPress: handleResendCode },
+          });
+        } else {
+          showBanner({ type: 'error', title: 'Invalid Code', message: 'The code you entered is incorrect. Please try again.' });
+        }
+      }
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  const handleResendCode = async () => {
+    hideBanner();
+    setOtpDigits(Array(OTP_LENGTH).fill(''));
+    setIsSending(true);
+    try {
+      const result = await authService.sendResetCode(resetEmail);
+      if (result.success) {
+        showBanner({ type: 'success', title: 'Code Resent', message: `A new code has been sent to ${resetEmail}.` });
+      } else {
+        showBanner({ type: 'error', title: 'Failed to Resend', message: friendlyError(result.error || 'Please try again.') });
+      }
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  const handleSetNewPassword = async () => {
+    hideBanner();
+    if (!formData.password.trim() || !formData.confirmPassword.trim()) {
+      showBanner({ type: 'error', title: 'Missing Fields', message: 'Please fill in both password fields.' });
+      return;
+    }
+    if (formData.password.length < 6) {
+      showBanner({ type: 'error', title: 'Weak Password', message: 'Password must be at least 6 characters.' });
+      return;
+    }
+    if (formData.password !== formData.confirmPassword) {
+      showBanner({ type: 'error', title: 'Mismatch', message: 'Passwords do not match.' });
+      return;
+    }
+
+    setIsSending(true);
+    try {
+      const result = await authService.updatePassword(formData.password);
+      if (result.success) {
+        showBanner({
+          type: 'success', title: 'Password Updated',
+          message: 'Your password has been reset. You can now log in.',
+          action: { label: 'Go to Login', onPress: () => switchMode('login', true) },
+        });
+      } else {
+        showBanner({ type: 'error', title: 'Update Failed', message: friendlyError(result.error || 'Please try again.') });
+      }
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  const handleOtpChange = (text: string) => {
+    if (banner) hideBanner();
+    const digits = text.replace(/[^0-9]/g, '').slice(0, OTP_LENGTH);
+    setOtpValue(digits);
+  };
+
   const resetForm = () => {
-    setFormData({
-      email: '',
-      password: '',
-      confirmPassword: '',
-      name: '',
-    });
+    setFormData({ email: '', password: '', confirmPassword: '', name: '' });
+  };
+
+  const bannerColors = {
+    error: { bg: dark ? '#3A1C1C' : '#FFF2F2', border: '#FF3B30', icon: '#FF3B30' },
+    info: { bg: dark ? '#1C2A3A' : '#F0F4FF', border: '#007AFF', icon: '#007AFF' },
+    success: { bg: dark ? '#1C3A1C' : '#F0FFF0', border: '#34C759', icon: '#34C759' },
+  };
+
+  const bannerIcon: Record<BannerType, keyof typeof Ionicons.glyphMap> = {
+    error: 'alert-circle',
+    info: 'information-circle',
+    success: 'checkmark-circle',
+  };
+
+  const isForgot = mode.startsWith('forgot');
+  const busy = isLoading || isSending;
+
+  const getTitle = () => {
+    switch (mode) {
+      case 'login': return 'Welcome Back';
+      case 'signup': return 'Create Account';
+      case 'forgot-email': return 'Reset Password';
+      case 'forgot-code': return 'Enter Code';
+      case 'forgot-password': return 'New Password';
+    }
+  };
+
+  const getSubtitle = () => {
+    switch (mode) {
+      case 'login': return 'Login to continue';
+      case 'signup': return 'Fill in the details to get started';
+      case 'forgot-email': return "Enter your email and we'll send you a code";
+      case 'forgot-code': return `Enter the 6-digit code sent to ${resetEmail}`;
+      case 'forgot-password': return 'Choose a new password for your account';
+    }
+  };
+
+  const getSubmitAction = () => {
+    switch (mode) {
+      case 'login': return handleLogin;
+      case 'signup': return handleSignup;
+      case 'forgot-email': return handleSendCode;
+      case 'forgot-code': return handleVerifyCode;
+      case 'forgot-password': return handleSetNewPassword;
+    }
+  };
+
+  const getSubmitLabel = () => {
+    switch (mode) {
+      case 'login': return 'Login';
+      case 'signup': return 'Create Account';
+      case 'forgot-email': return 'Send Code';
+      case 'forgot-code': return 'Verify Code';
+      case 'forgot-password': return 'Reset Password';
+    }
+  };
+
+  const getSubmitIcon = (): keyof typeof Ionicons.glyphMap => {
+    switch (mode) {
+      case 'login': return 'log-in-outline';
+      case 'signup': return 'person-add-outline';
+      case 'forgot-email': return 'mail-outline';
+      case 'forgot-code': return 'shield-checkmark-outline';
+      case 'forgot-password': return 'lock-open-outline';
+    }
   };
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      style={styles.container}>
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}>
-        {/* Logo Section */}
-        <ThemedView style={styles.logoSection}>
-          <ThemedView style={styles.logoContainer}>
-            <Ionicons name="checkmark-done-circle" size={80} color="#4CAF50" />
-          </ThemedView>
-          <ThemedText type="title" style={styles.appTitle}>
-            Tisk
-          </ThemedText>
-          <ThemedText style={styles.appSubtitle}>
-            Stay organized, stay productive
-          </ThemedText>
-        </ThemedView>
+    <View style={[styles.container, { backgroundColor: colors.bg }]}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.flex}>
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled">
 
-        {/* Login/Signup Form */}
-        <ThemedView style={styles.formSection}>
-          <ThemedText type="title" style={styles.formTitle}>
-            {isLoginMode ? 'Welcome Back' : 'Create Account'}
-          </ThemedText>
+          <View style={styles.logoSection}>
+            <View style={[styles.logoCircle, { backgroundColor: dark ? '#1E3A1E' : '#E8F5E9' }]}>
+              <Ionicons name="checkmark-done-circle" size={64} color="#4CAF50" />
+            </View>
+            <ThemedText type="title" style={styles.appTitle}>Tisk</ThemedText>
+            <ThemedText style={[styles.appSubtitle, { color: colors.textSecondary }]}>
+              Stay organized, stay productive
+            </ThemedText>
+          </View>
 
-          {/* Name Field (Signup Only) */}
-          {!isLoginMode && (
-            <ThemedView>
-              <ThemedText style={styles.label}>Full Name</ThemedText>
-              <ThemedView style={styles.inputContainer}>
-                <Ionicons name="person" size={20} color="#888" />
-                <TextInput
-                  style={[
-                    styles.input,
-                    { color: colorScheme === 'dark' ? '#fff' : '#000' },
-                  ]}
-                  placeholder="John Doe"
-                  placeholderTextColor={colorScheme === 'dark' ? '#888' : '#ccc'}
-                  value={formData.name}
-                  onChangeText={(text) =>
-                    setFormData({ ...formData, name: text })
-                  }
-                  editable={!isLoading}
-                />
-              </ThemedView>
-            </ThemedView>
-          )}
-
-          {/* Email Field */}
-          <ThemedView>
-            <ThemedText style={styles.label}>Email</ThemedText>
-            <ThemedView style={styles.inputContainer}>
-              <Ionicons name="mail" size={20} color="#888" />
-              <TextInput
-                style={[
-                  styles.input,
-                  { color: colorScheme === 'dark' ? '#fff' : '#000' },
-                ]}
-                placeholder="your@email.com"
-                placeholderTextColor={colorScheme === 'dark' ? '#888' : '#ccc'}
-                value={formData.email}
-                onChangeText={(text) =>
-                  setFormData({ ...formData, email: text })
-                }
-                keyboardType="email-address"
-                autoCapitalize="none"
-                editable={!isLoading}
-              />
-            </ThemedView>
-          </ThemedView>
-
-          {/* Password Field */}
-          <ThemedView>
-            <ThemedText style={styles.label}>Password</ThemedText>
-            <ThemedView style={styles.inputContainer}>
-              <Ionicons name="lock-closed" size={20} color="#888" />
-              <TextInput
-                style={[
-                  styles.input,
-                  { color: colorScheme === 'dark' ? '#fff' : '#000' },
-                ]}
-                placeholder="••••••••"
-                placeholderTextColor={colorScheme === 'dark' ? '#888' : '#ccc'}
-                value={formData.password}
-                onChangeText={(text) =>
-                  setFormData({ ...formData, password: text })
-                }
-                secureTextEntry={!showPassword}
-                editable={!isLoading}
-              />
+          <View style={[styles.card, { backgroundColor: colors.card }]}>
+            {isForgot && (
               <TouchableOpacity
-                onPress={() => setShowPassword(!showPassword)}>
-                <Ionicons
-                  name={showPassword ? 'eye' : 'eye-off'}
-                  size={20}
-                  color="#888"
-                />
-              </TouchableOpacity>
-            </ThemedView>
-          </ThemedView>
-
-          {/* Confirm Password Field (Signup Only) */}
-          {!isLoginMode && (
-            <ThemedView>
-              <ThemedText style={styles.label}>Confirm Password</ThemedText>
-              <ThemedView style={styles.inputContainer}>
-                <Ionicons name="lock-closed" size={20} color="#888" />
-                <TextInput
-                  style={[
-                    styles.input,
-                    { color: colorScheme === 'dark' ? '#fff' : '#000' },
-                  ]}
-                  placeholder="••••••••"
-                  placeholderTextColor={colorScheme === 'dark' ? '#888' : '#ccc'}
-                  value={formData.confirmPassword}
-                  onChangeText={(text) =>
-                    setFormData({ ...formData, confirmPassword: text })
-                  }
-                  secureTextEntry={!showConfirmPassword}
-                  editable={!isLoading}
-                />
-                <TouchableOpacity
-                  onPress={() => setShowConfirmPassword(!showConfirmPassword)}>
-                  <Ionicons
-                    name={showConfirmPassword ? 'eye' : 'eye-off'}
-                    size={20}
-                    color="#888"
-                  />
-                </TouchableOpacity>
-              </ThemedView>
-            </ThemedView>
-          )}
-
-          {/* Error Message */}
-          {error && (
-            <Text style={styles.errorText}>{error}</Text>
-          )}
-
-          {/* Login Button */}
-          <TouchableOpacity
-            style={[styles.submitButton, isLoading && { opacity: 0.7 }]}
-            onPress={isLoginMode ? handleLogin : handleSignup}
-            disabled={isLoading}>
-            {isLoading ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <>
-                <Ionicons
-                  name={isLoginMode ? 'log-in' : 'person-add'}
-                  size={20}
-                  color="#fff"
-                />
-                <ThemedText style={styles.submitButtonText}>
-                  {isLoginMode ? 'Sign In' : 'Create Account'}
+                style={styles.backButton}
+                onPress={() => mode === 'forgot-email' ? switchMode('login', true) : setMode('forgot-email')}>
+                <Ionicons name="arrow-back" size={20} color={colors.textSecondary} />
+                <ThemedText style={[styles.backButtonText, { color: colors.textSecondary }]}>
+                  {mode === 'forgot-email' ? 'Back to Login' : 'Back'}
                 </ThemedText>
+              </TouchableOpacity>
+            )}
+
+            <ThemedText type="title" style={styles.formTitle}>{getTitle()}</ThemedText>
+            <ThemedText style={[styles.formSubtitle, { color: colors.textSecondary }]}>{getSubtitle()}</ThemedText>
+
+            {banner && (
+              <Animated.View
+                style={[
+                  styles.banner,
+                  { backgroundColor: bannerColors[banner.type].bg, borderColor: bannerColors[banner.type].border, opacity: bannerOpacity },
+                ]}>
+                <View style={styles.bannerContent}>
+                  <Ionicons name={bannerIcon[banner.type]} size={20} color={bannerColors[banner.type].icon} style={styles.bannerIcon} />
+                  <View style={styles.bannerText}>
+                    <ThemedText style={[styles.bannerTitle, { color: bannerColors[banner.type].icon }]}>{banner.title}</ThemedText>
+                    <ThemedText style={[styles.bannerMessage, { color: colors.text }]}>{banner.message}</ThemedText>
+                  </View>
+                  <TouchableOpacity onPress={hideBanner} hitSlop={8}>
+                    <Ionicons name="close" size={18} color={colors.textSecondary} />
+                  </TouchableOpacity>
+                </View>
+                {banner.action && (
+                  <TouchableOpacity
+                    style={[styles.bannerAction, { borderColor: bannerColors[banner.type].border }]}
+                    onPress={banner.action.onPress}>
+                    <ThemedText style={[styles.bannerActionText, { color: bannerColors[banner.type].icon }]}>{banner.action.label}</ThemedText>
+                  </TouchableOpacity>
+                )}
+              </Animated.View>
+            )}
+
+            {/* NAME — signup only */}
+            {mode === 'signup' && (
+              <View>
+                <ThemedText style={[styles.label, { color: colors.textSecondary }]}>Full Name</ThemedText>
+                <View style={[styles.inputContainer, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}>
+                  <Ionicons name="person-outline" size={20} color={colors.textSecondary} />
+                  <TextInput style={[styles.input, { color: colors.text }]} placeholder="John Doe" placeholderTextColor={colors.placeholder}
+                    value={formData.name} onChangeText={(t) => setFormData({ ...formData, name: t })} editable={!busy} />
+                </View>
+              </View>
+            )}
+
+            {/* EMAIL — login, signup, forgot-email */}
+            {(mode === 'login' || mode === 'signup' || mode === 'forgot-email') && (
+              <View>
+                <ThemedText style={[styles.label, { color: colors.textSecondary }]}>Email</ThemedText>
+                <View style={[styles.inputContainer, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}>
+                  <Ionicons name="mail-outline" size={20} color={colors.textSecondary} />
+                  <TextInput style={[styles.input, { color: colors.text }]} placeholder="your@email.com" placeholderTextColor={colors.placeholder}
+                    value={formData.email} onChangeText={(t) => { setFormData({ ...formData, email: t }); if (banner) hideBanner(); }}
+                    keyboardType="email-address" autoCapitalize="none" editable={!busy} />
+                </View>
+              </View>
+            )}
+
+            {/* OTP CODE — forgot-code */}
+            {mode === 'forgot-code' && (
+              <View>
+                <ThemedText style={[styles.label, { color: colors.textSecondary }]}>Verification Code</ThemedText>
+                <TouchableOpacity
+                  style={styles.otpRow}
+                  activeOpacity={1}
+                  onPress={() => otpInputRef.current?.focus()}>
+                  {Array.from({ length: OTP_LENGTH }).map((_, i) => {
+                    const digit = otpValue[i] || '';
+                    const isCursor = i === otpValue.length && otpValue.length < OTP_LENGTH;
+                    return (
+                      <View
+                        key={i}
+                        style={[
+                          styles.otpBox,
+                          {
+                            backgroundColor: colors.inputBg,
+                            borderColor: isCursor ? '#4CAF50' : digit ? '#4CAF50' : colors.inputBorder,
+                          },
+                        ]}>
+                        <ThemedText style={[styles.otpDigit, { color: colors.text }]}>
+                          {digit}
+                        </ThemedText>
+                      </View>
+                    );
+                  })}
+                </TouchableOpacity>
+                <TextInput
+                  ref={otpInputRef}
+                  value={otpValue}
+                  onChangeText={handleOtpChange}
+                  keyboardType="number-pad"
+                  maxLength={OTP_LENGTH}
+                  autoFocus
+                  style={styles.otpHiddenInput}
+                  editable={!busy}
+                />
+                <TouchableOpacity style={styles.resendButton} onPress={handleResendCode} disabled={busy}>
+                  <ThemedText style={[styles.resendText, { color: '#4CAF50' }]}>
+                    Didn't receive a code? Resend
+                  </ThemedText>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* PASSWORD — login, signup */}
+            {(mode === 'login' || mode === 'signup') && (
+              <View>
+                <ThemedText style={[styles.label, { color: colors.textSecondary }]}>Password</ThemedText>
+                <View style={[styles.inputContainer, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}>
+                  <Ionicons name="lock-closed-outline" size={20} color={colors.textSecondary} />
+                  <TextInput style={[styles.input, { color: colors.text }]} placeholder="••••••••" placeholderTextColor={colors.placeholder}
+                    value={formData.password} onChangeText={(t) => { setFormData({ ...formData, password: t }); if (banner) hideBanner(); }}
+                    secureTextEntry={!showPassword} editable={!busy} />
+                  <TouchableOpacity onPress={() => setShowPassword(!showPassword)} hitSlop={8}>
+                    <Ionicons name={showPassword ? 'eye-outline' : 'eye-off-outline'} size={20} color={colors.textSecondary} />
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
+            {/* NEW PASSWORD + CONFIRM — forgot-password */}
+            {mode === 'forgot-password' && (
+              <>
+                <View>
+                  <ThemedText style={[styles.label, { color: colors.textSecondary }]}>New Password</ThemedText>
+                  <View style={[styles.inputContainer, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}>
+                    <Ionicons name="lock-open-outline" size={20} color={colors.textSecondary} />
+                    <TextInput style={[styles.input, { color: colors.text }]} placeholder="••••••••" placeholderTextColor={colors.placeholder}
+                      value={formData.password} onChangeText={(t) => { setFormData({ ...formData, password: t }); if (banner) hideBanner(); }}
+                      secureTextEntry={!showPassword} editable={!busy} />
+                    <TouchableOpacity onPress={() => setShowPassword(!showPassword)} hitSlop={8}>
+                      <Ionicons name={showPassword ? 'eye-outline' : 'eye-off-outline'} size={20} color={colors.textSecondary} />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+                <View>
+                  <ThemedText style={[styles.label, { color: colors.textSecondary }]}>Confirm New Password</ThemedText>
+                  <View style={[styles.inputContainer, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}>
+                    <Ionicons name="lock-closed-outline" size={20} color={colors.textSecondary} />
+                    <TextInput style={[styles.input, { color: colors.text }]} placeholder="••••••••" placeholderTextColor={colors.placeholder}
+                      value={formData.confirmPassword} onChangeText={(t) => setFormData({ ...formData, confirmPassword: t })}
+                      secureTextEntry={!showConfirmPassword} editable={!busy} />
+                    <TouchableOpacity onPress={() => setShowConfirmPassword(!showConfirmPassword)} hitSlop={8}>
+                      <Ionicons name={showConfirmPassword ? 'eye-outline' : 'eye-off-outline'} size={20} color={colors.textSecondary} />
+                    </TouchableOpacity>
+                  </View>
+                </View>
               </>
             )}
-          </TouchableOpacity>
 
-          {/* Forgot Password Link (Login Only) */}
-          {isLoginMode && (
-            <TouchableOpacity style={styles.forgotButton}>
-              <ThemedText style={styles.forgotButtonText}>
-                Forgot Password?
-              </ThemedText>
-            </TouchableOpacity>
-          )}
+            {/* CONFIRM PASSWORD — signup */}
+            {mode === 'signup' && (
+              <View>
+                <ThemedText style={[styles.label, { color: colors.textSecondary }]}>Confirm Password</ThemedText>
+                <View style={[styles.inputContainer, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}>
+                  <Ionicons name="lock-closed-outline" size={20} color={colors.textSecondary} />
+                  <TextInput style={[styles.input, { color: colors.text }]} placeholder="••••••••" placeholderTextColor={colors.placeholder}
+                    value={formData.confirmPassword} onChangeText={(t) => setFormData({ ...formData, confirmPassword: t })}
+                    secureTextEntry={!showConfirmPassword} editable={!busy} />
+                  <TouchableOpacity onPress={() => setShowConfirmPassword(!showConfirmPassword)} hitSlop={8}>
+                    <Ionicons name={showConfirmPassword ? 'eye-outline' : 'eye-off-outline'} size={20} color={colors.textSecondary} />
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
 
-          {/* Toggle Between Login and Signup */}
-          <ThemedView style={styles.toggleContainer}>
-            <ThemedText style={styles.toggleText}>
-              {isLoginMode ? "Don't have an account? " : 'Already have an account? '}
-            </ThemedText>
+            {/* SUBMIT BUTTON */}
             <TouchableOpacity
-              onPress={() => {
-                setIsLoginMode(!isLoginMode);
-                resetForm();
-              }}>
-              <ThemedText style={styles.toggleLink}>
-                {isLoginMode ? 'Sign Up' : 'Sign In'}
-              </ThemedText>
+              style={[styles.submitButton, busy && { opacity: 0.7 }]}
+              onPress={getSubmitAction()}
+              activeOpacity={0.8}
+              disabled={busy}>
+              {busy ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <>
+                  <Ionicons name={getSubmitIcon()} size={20} color="#fff" />
+                  <ThemedText style={styles.submitButtonText}>{getSubmitLabel()}</ThemedText>
+                </>
+              )}
             </TouchableOpacity>
-          </ThemedView>
-        </ThemedView>
-      </ScrollView>
-    </KeyboardAvoidingView>
+
+            {mode === 'login' && (
+              <TouchableOpacity style={styles.forgotButton} onPress={() => goToForgot(formData.email)}>
+                <ThemedText style={[styles.forgotButtonText, { color: colors.textSecondary }]}>Forgot Password?</ThemedText>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {!isForgot && (
+            <View style={styles.toggleContainer}>
+              <ThemedText style={[styles.toggleText, { color: colors.textSecondary }]}>
+                {mode === 'login' ? "Don't have an account? " : 'Already have an account? '}
+              </ThemedText>
+              <TouchableOpacity onPress={() => switchMode(mode === 'login' ? 'signup' : 'login')}>
+                <ThemedText style={styles.toggleLink}>{mode === 'login' ? 'Sign Up' : 'Login'}</ThemedText>
+              </TouchableOpacity>
+            </View>
+          )}
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
+  flex: { flex: 1 },
+  container: { flex: 1 },
+  scrollContent: { flexGrow: 1, paddingHorizontal: 24, paddingTop: 60, paddingBottom: 40 },
+  logoSection: { alignItems: 'center', marginBottom: 32 },
+  logoCircle: { width: 100, height: 100, borderRadius: 50, alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
+  appTitle: { fontSize: 36, fontWeight: '800', letterSpacing: -0.5, marginBottom: 4 },
+  appSubtitle: { fontSize: 15 },
+  card: {
+    borderRadius: 20, padding: 24, gap: 16,
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 12 },
+      android: { elevation: 3 },
+      default: {},
+    }),
   },
-  scrollContent: {
-    flexGrow: 1,
-    paddingHorizontal: 20,
-    paddingVertical: 30,
-    justifyContent: 'space-between',
+  backButton: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: -4 },
+  backButtonText: { fontSize: 14, fontWeight: '600' },
+  formTitle: { fontSize: 24, fontWeight: '700', marginBottom: -8 },
+  formSubtitle: { fontSize: 14, marginBottom: 4 },
+  banner: { borderRadius: 12, borderWidth: 1, padding: 12, gap: 10 },
+  bannerContent: { flexDirection: 'row', alignItems: 'flex-start' },
+  bannerIcon: { marginRight: 8, marginTop: 1 },
+  bannerText: { flex: 1, gap: 2 },
+  bannerTitle: { fontSize: 14, fontWeight: '700' },
+  bannerMessage: { fontSize: 13, lineHeight: 18 },
+  bannerAction: { alignSelf: 'flex-start', borderWidth: 1, borderRadius: 8, paddingHorizontal: 14, paddingVertical: 7, marginLeft: 28 },
+  bannerActionText: { fontSize: 13, fontWeight: '600' },
+  label: { fontSize: 13, fontWeight: '600', marginBottom: 6, marginLeft: 4 },
+  inputContainer: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 14, gap: 10 },
+  input: { flex: 1, fontSize: 16 },
+  otpRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 8 },
+  otpBox: {
+    flex: 1, height: 56, borderWidth: 1.5, borderRadius: 12,
+    alignItems: 'center', justifyContent: 'center',
   },
-  logoSection: {
-    alignItems: 'center',
-    marginBottom: 40,
-    marginTop: 20,
-  },
-  logoContainer: {
-    marginBottom: 16,
-  },
-  appTitle: {
-    fontSize: 40,
-    fontWeight: '700',
-    marginBottom: 8,
-  },
-  appSubtitle: {
-    fontSize: 16,
-    opacity: 0.6,
-  },
-  formSection: {
-    gap: 16,
-  },
-  formTitle: {
-    marginBottom: 8,
-    fontSize: 28,
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: '600',
-    marginBottom: 8,
-  },
-  inputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    gap: 10,
-    marginBottom: 16,
-  },
-  input: {
-    flex: 1,
-    fontSize: 16,
-  },
+  otpDigit: { fontSize: 24, fontWeight: '700' },
+  otpHiddenInput: { position: 'absolute', opacity: 0, height: 0, width: 0 },
+  resendButton: { alignItems: 'center', paddingVertical: 10 },
+  resendText: { fontSize: 13, fontWeight: '600' },
   submitButton: {
-    flexDirection: 'row',
-    backgroundColor: '#4CAF50',
-    paddingVertical: 14,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    marginTop: 8,
+    flexDirection: 'row', backgroundColor: '#4CAF50', paddingVertical: 16,
+    borderRadius: 14, alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 4,
   },
-  submitButtonText: {
-    color: '#fff',
-    fontWeight: '700',
-    fontSize: 16,
-  },
-  forgotButton: {
-    alignItems: 'center',
-    paddingVertical: 8,
-  },
-  forgotButtonText: {
-    color: '#4CAF50',
-    fontWeight: '600',
-    fontSize: 14,
-  },
-  toggleContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingVertical: 8,
-  },
-  toggleText: {
-    fontSize: 14,
-    opacity: 0.6,
-  },
-  toggleLink: {
-    color: '#4CAF50',
-    fontWeight: '700',
-    fontSize: 14,
-  },
-  divider: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginVertical: 16,
-  },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: '#ddd',
-  },
-  dividerText: {
-    fontSize: 12,
-    opacity: 0.5,
-  },
-  socialContainer: {
-    flexDirection: 'row',
-    gap: 12,
-    justifyContent: 'center',
-  },
-  socialButton: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  errorText: {
-    color: '#FF3B30',
-    fontSize: 14,
-    marginTop: -8,
-    marginBottom: 8,
-  },
+  submitButtonText: { color: '#fff', fontWeight: '700', fontSize: 16 },
+  forgotButton: { alignItems: 'center', paddingVertical: 4 },
+  forgotButtonText: { fontWeight: '600', fontSize: 14 },
+  toggleContainer: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', paddingVertical: 20 },
+  toggleText: { fontSize: 14 },
+  toggleLink: { color: '#4CAF50', fontWeight: '700', fontSize: 14 },
 });
