@@ -1,190 +1,117 @@
-# Backend Documentation
+# Backend Architecture
 
 ## Overview
 
-All backend logic lives in a single Supabase Edge Function (`rapid-task`) written in Deno/TypeScript. There is no separate Express/Node server. The function is deployed to Supabase's global edge network and is accessed at:
+All CRUD goes through a single Deno edge function at `supabase/functions/rapid-task/index.ts`. It uses the Supabase JS client initialized with the **service role key** — it bypasses RLS and enforces its own user-scoping in every query.
+
+## Auth
+
+`POST /auth?action=signup` and `POST /auth?action=login` are the only public routes. They use the Supabase anon key as the `Authorization: Bearer` header (set by `ApiClient` for unauthenticated requests).
+
+All other routes call `getAuthUser(req)`, which extracts the JWT from `Authorization: Bearer`, calls `supabase.auth.getUser(token)`, and returns the `user.id` or `null`. A `null` result returns 401.
+
+## Routing
+
+The function strips the `/rapid-task` prefix from the pathname and matches the remainder against string equality or regex:
 
 ```
-https://bkobvzbzhxybcugsuvjq.supabase.co/functions/v1/rapid-task
+endpoint = pathname.replace(/\/rapid-task(.*)/, '$1') || '/'
 ```
 
-## Edge Function: `rapid-task`
+Route matching is done with `if/else` chains — there is no router framework. Regex patterns used:
 
-**Location:** `supabase/functions/rapid-task/`
+| Pattern | Matches |
+|---|---|
+| `/^\/tasks\/([^/]+)$/` | `/tasks/:id` |
+| `/^\/tasks\/([^/]+)\/subtasks$/` | `/tasks/:id/subtasks` |
+| `/^\/subtasks\/([^/]+)$/` | `/subtasks/:id` |
+| `/^\/categories\/([^/]+)$/` | `/categories/:id` |
+| `/^\/friends\/([^/]+)$/` | `/friends/:id` |
 
-The function is a monolithic request router. It reads the URL path and HTTP method to dispatch to the appropriate handler. All responses are `application/json`.
+## API Endpoints
 
-### Routing Pattern
+### Auth (public)
+| Method | Endpoint | Action param | Description |
+|---|---|---|---|
+| POST | `/auth` | `signup` | Create account |
+| POST | `/auth` | `login` | Sign in, returns session |
 
-```typescript
-// Pseudo-structure inside the edge function
-const path = url.pathname.replace('/rapid-task', '')  // e.g. '/tasks'
-const method = req.method
+### Tasks
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/tasks` | List user's tasks |
+| POST | `/tasks` | Create task |
+| PUT | `/tasks/:id` | Update task (title, description, priority, dueDate, completed, category_id) |
+| DELETE | `/tasks/:id` | Delete task |
 
-if (path === '/auth') {
-  const action = url.searchParams.get('action')  // 'signup' | 'login'
-  // handle auth
-} else {
-  verifyJWT(req)  // throws 401 if invalid
-  if (path === '/tasks') { ... }
-  if (path.startsWith('/tasks/')) { ... }  // /tasks/:id
-  // etc.
-}
+### Subtasks
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/tasks/:id/subtasks` | List subtasks for a task |
+| POST | `/tasks/:id/subtasks` | Create subtask |
+| PUT | `/subtasks/:id` | Update subtask |
+| DELETE | `/subtasks/:id` | Delete subtask |
+
+### Categories
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/categories` | List user's categories |
+| POST | `/categories` | Create category (`name`, optional `color`) |
+| DELETE | `/categories/:id` | Delete category |
+
+### Friends
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/friends` | List accepted friends (with profile data) |
+| GET | `/friends/requests` | List pending incoming friend requests |
+| POST | `/friends` | Send friend request by `username` |
+| PUT | `/friends/:id` | Accept or reject a request (`status: accepted\|rejected`, addressee only) |
+| DELETE | `/friends/:id` | Unfriend or cancel request (either party) |
+
+### Location
+| Method | Endpoint | Description |
+|---|---|---|
+| POST | `/location` | Upsert current user's location (403 if `share_location` is false) |
+| GET | `/location/friends` | Get accepted friends' locations (filtered to `share_location = true`) |
+
+### Profile
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/profile` | Get own profile |
+| PUT | `/profile` | Update profile (username, name, bio, avatar_url) |
+
+### Settings
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/settings` | Get own settings |
+| PUT | `/settings` | Update settings (notifications_enabled, dark_mode, private_profile, show_online_status, share_location) |
+
+## Database Tables (inferred)
+
+| Table | Key columns |
+|---|---|
+| `tasks` | `id`, `user_id`, `title`, `description`, `priority`, `category_id`, `due_date`, `completed` |
+| `subtasks` | `id`, `task_id`, `title`, `completed` |
+| `categories` | `id`, `user_id`, `name`, `color` |
+| `friends` | `id`, `requester_id`, `addressee_id`, `status` (`pending`/`accepted`/`rejected`) |
+| `profiles` | `user_id`, `username`, `name`, `bio`, `avatar_url`, `updated_at` |
+| `user_settings` | `user_id`, `notifications_enabled`, `dark_mode`, `private_profile`, `show_online_status`, `share_location` |
+| `user_locations` | `user_id`, `latitude`, `longitude`, `address`, `accuracy`, `updated_at` (unique on `user_id`) |
+
+## Response Envelope
+
+Every response is `{ success: boolean }` plus either an entity key or `error`:
+
+```json
+{ "success": true, "tasks": [...] }
+{ "success": false, "error": "Unauthorized" }
 ```
 
-### JWT Verification
+`ApiClient` unwraps this automatically: if there is exactly one key besides `success`/`error`, it is promoted to `response.data`. The exception is `taskService.getTasks()`, which does its own unwrapping because the envelope key is `tasks` (not `data`).
 
-For all non-`/auth` routes, the function extracts the `Authorization: Bearer <token>` header and verifies it against Supabase's JWT secret. The decoded payload provides `sub` (user UUID) used to scope all database queries.
+## Adding a New Endpoint
 
-### API Reference
-
-All authenticated endpoints require `Authorization: Bearer <jwt>`.
-
-#### Auth (no JWT required — use publishable key as Bearer)
-
-| Method | Path | Query | Body | Description |
-|--------|------|-------|------|-------------|
-| POST | `/auth` | `action=signup` | `{ email, password, name }` | Create account |
-| POST | `/auth` | `action=login` | `{ email, password }` | Sign in |
-
-Response for both: `{ session: { access_token, ... }, user: User }`
-
-#### Tasks
-
-| Method | Path | Body | Description |
-|--------|------|------|-------------|
-| GET | `/tasks` | — | List authenticated user's tasks |
-| POST | `/tasks` | `CreateTaskInput` | Create task |
-| PUT | `/tasks/:id` | `UpdateTaskInput` | Update task fields |
-| DELETE | `/tasks/:id` | — | Delete task |
-
-#### Profile
-
-| Method | Path | Body | Description |
-|--------|------|------|-------------|
-| GET | `/profile` | — | Get own profile |
-| PUT | `/profile` | `UpdateProfileInput` | Update profile |
-
-#### Friends
-
-| Method | Path | Body | Description |
-|--------|------|------|-------------|
-| GET | `/friends` | — | List friends |
-| POST | `/friends` | `{ username }` | Add friend by username |
-| DELETE | `/friends/:id` | — | Remove friend |
-
-#### Settings
-
-| Method | Path | Body | Description |
-|--------|------|------|-------------|
-| GET | `/settings` | — | Get user settings |
-| PUT | `/settings` | `UpdateSettingsInput` | Update settings |
-
-#### Location
-
-| Method | Path | Body | Description |
-|--------|------|------|-------------|
-| POST | `/location` | `{ latitude, longitude, accuracy?, address? }` | Upsert current location |
-
-## Database Schema
-
-Tables inferred from the edge function and services:
-
-### `tasks`
-```sql
-id          uuid PRIMARY KEY DEFAULT gen_random_uuid()
-user_id     uuid REFERENCES auth.users(id)
-title       text NOT NULL
-description text
-priority    text CHECK (priority IN ('low', 'medium', 'high'))
-category    text CHECK (category IN ('Work', 'Personal', 'Shopping', 'Health', 'Finance'))
-due_date    timestamptz
-completed   boolean DEFAULT false
-completed_at timestamptz
-created_at  timestamptz DEFAULT now()
-updated_at  timestamptz
-```
-
-### `profiles`
-```sql
-id          uuid PRIMARY KEY REFERENCES auth.users(id)
-name        text
-username    text UNIQUE
-avatar_url  text
-bio         text
-created_at  timestamptz DEFAULT now()
-updated_at  timestamptz
-```
-
-### `friendships`
-```sql
-id          uuid PRIMARY KEY DEFAULT gen_random_uuid()
-user_id     uuid REFERENCES auth.users(id)
-friend_id   uuid REFERENCES auth.users(id)
-status      text DEFAULT 'accepted'
-created_at  timestamptz DEFAULT now()
-```
-
-### `user_settings`
-```sql
-user_id              uuid PRIMARY KEY REFERENCES auth.users(id)
-notifications_enabled boolean DEFAULT true
-dark_mode            boolean DEFAULT false
-privacy_mode         boolean DEFAULT false
-updated_at           timestamptz
-```
-
-### `user_locations`
-```sql
-user_id    uuid PRIMARY KEY REFERENCES auth.users(id)
-latitude   float8
-longitude  float8
-accuracy   float8
-address    text
-updated_at timestamptz DEFAULT now()
-```
-
-## Local Development
-
-### Prerequisites
-- Docker (for local Supabase)
-- Supabase CLI (`npm i -g supabase` or use the devDependency)
-
-### Start local Supabase
-```bash
-npx supabase start
-# Starts PostgreSQL, Auth, Storage, and Edge Functions runtime locally
-```
-
-### Serve the edge function locally
-```bash
-npx supabase functions serve rapid-task --env-file .env.local
-# Available at http://localhost:54321/functions/v1/rapid-task
-```
-
-For local testing, set `EXPO_PUBLIC_API_URL=http://localhost:54321/functions/v1/rapid-task` in `.env`.
-
-### Deploy to remote
-```bash
-npx supabase functions deploy rapid-task
-```
-
-## Supabase Configuration
-
-`supabase/config.toml` key settings:
-- PostgreSQL v17
-- JWT expiry: 3600s (1 hour)
-- Storage max file size: 50 MiB
-- Edge functions runtime: Deno v2
-- `rapid-task` function: JWT verification enabled
-- Analytics: disabled
-
-## ApiClient (client side)
-
-`src/api/apiClient.ts` is the single point of contact between the app and the edge function. It:
-- Reads the JWT from AsyncStorage before each authenticated request
-- Sets `Content-Type: application/json` and `Authorization` headers
-- Parses JSON responses
-- Normalizes errors into `ApiError` shape (`{ message, code?, details? }`)
-
-Do not call `fetch` directly in services — always go through `apiClient`.
+1. Add the handler block in `index.ts` (match method + endpoint string/regex, call supabase, return `jsonResponse`).
+2. Add a method to the relevant service in `src/services/`.
+3. Add any new types to `src/types/api.ts`.
+4. Deploy: `supabase functions deploy rapid-task`.

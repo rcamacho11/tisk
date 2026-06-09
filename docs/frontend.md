@@ -1,136 +1,62 @@
-# Frontend Documentation
+# Frontend Architecture
 
-## Framework & Routing
+## Routing
 
-**Expo SDK ~54** with **Expo Router ~6** (file-based routing, similar to Next.js App Router).
+Expo Router (file-based). Entry point is `app/_layout.tsx`, which wraps the whole app in `AuthProvider` and renders `AuthGuard`.
 
-- Every file in `app/` becomes a route.
-- `_layout.tsx` files define layout wrappers and navigation structure.
-- `(tabs)/` is a route group — it renders a bottom tab navigator without the group name appearing in the URL.
-- Platform-specific files: `ComponentName.ios.tsx` is used on iOS, `ComponentName.tsx` on all other platforms.
+`AuthGuard` is a render-null component that watches `isAuthenticated` from `AuthContext` and calls `router.replace` to enforce:
+- Unauthenticated → `/login`
+- Authenticated + on `/login` → `/(tabs)`
 
-## Navigation
+### Screens
 
-```
-app/
-├── _layout.tsx          # Root Stack layout
-│                        # Checks auth → redirects to login if no session
-├── login.tsx            # Unified auth screen (login + signup toggled by state)
-├── modal.tsx            # Example modal route
-└── (tabs)/
-    ├── _layout.tsx      # Bottom tab navigator (3 visible tabs)
-    ├── index.tsx        # Tab 1: Home — task list + CRUD
-    ├── explore.tsx      # Tab 2: Explore — map + location
-    └── profile.tsx      # Tab 3: Profile — user info, friends, settings
-```
+| File | Tab | Description |
+|---|---|---|
+| `app/(tabs)/index.tsx` | Home | Full task list with CRUD, subtasks, filter/sort |
+| `app/(tabs)/explore.tsx` | Map | Leaflet map in a WebView showing user + friend locations |
+| `app/(tabs)/profile.tsx` | Profile | Profile editing, friends list, friend requests, settings |
+| `app/login.tsx` | — | Login / signup toggle |
+| `app/modal.tsx` | — | Unused placeholder modal |
 
-The root `_layout.tsx` wraps the app in `useAuth()` and uses `<Redirect>` to enforce auth. Any screen inside `(tabs)/` assumes a valid session exists.
+`app/(tabs)/index-tasks.tsx` is a duplicate/older version of the tasks screen — it is not routed anywhere and can be deleted.
 
-## Screens
+## Data Fetching Pattern
 
-### Login (`app/login.tsx`)
-- Single screen with local `isSignUp` toggle.
-- Form state: `email`, `password`, `name` (signup only), `confirmPassword` (signup only).
-- Calls `authService.signup()` or `authService.login()` directly (not through a mutation hook — simplification because the auth result drives navigation).
-- On success: sets session in `useAuth`, Expo Router redirects via the root layout.
+Two hooks in `src/hooks/useApi.ts` handle all async state:
 
-### Home / Tasks (`app/(tabs)/index.tsx`)
-The most feature-rich screen.
+**`useApi(callback, deps?)`** — for reads. Fires on mount and when `deps` change. Returns `{ data, loading, error, refetch }`.
 
-**State:** local `useState` for filters, sort, modal visibility, and the currently edited task.
-
-**Data:** `useApi(taskService.getTasks)` for the task list, `useMutation` for each write operation.
-
-**Features:**
-- Filter bar: All / Active / Completed
-- Sort controls: date / priority / category
-- Task cards with overdue highlighting (red), completion toggle, edit/delete swipe or button
-- Progress summary: "X of Y completed"
-- Floating action button → opens create modal
-- Task form modal (shared for create and edit): title, description, priority, category, due date
-
-**Priority levels (string literals, not enum):** `'low' | 'medium' | 'high'`
-
-**Category values:** `'Work' | 'Personal' | 'Shopping' | 'Health' | 'Finance'`
-
-### Explore / Map (`app/(tabs)/explore.tsx`)
-- Requests `Location.requestForegroundPermissionsAsync()` on mount.
-- Uses `expo-location` to get coordinates.
-- Renders map via **WebView** + Leaflet (OpenStreetMap tiles). The HTML/JS for Leaflet is injected as a string into the WebView — not a native map component.
-- Reverse geocodes coordinates to a human-readable address.
-- "Open in Maps" button links to Apple Maps / Google Maps / web map based on platform.
-- Location is also posted to the backend via `locationService.postLocation()`.
-
-### Profile (`app/(tabs)/profile.tsx`)
-- Loads profile, friends list, and settings in parallel with three `useApi` calls.
-- Edit profile modal: name, bio fields.
-- Add friend: text input for username, calls `friendService.addFriend({ username })`.
-- Settings display: shows current notification/dark mode/privacy values (read-only in current UI — settings edit not yet implemented).
-- Logout button calls `authService.logout()` and clears AsyncStorage.
-
-## Hooks
-
-### `useAuth()` — `src/hooks/useAuth.ts`
-```typescript
-const { session, user, login, signup, logout, loading } = useAuth()
-```
-- `session` — current Supabase session or `null`
-- Persists session to AsyncStorage; re-hydrates on app start
-- `login(email, password)` / `signup(email, password, name)` / `logout()`
-
-### `useApi(fetchFn)` — `src/hooks/useApi.ts`
-```typescript
-const { data, loading, error, refetch } = useApi(() => taskService.getTasks())
-```
-- Calls `fetchFn` on mount and whenever `refetch()` is called.
-- `data` starts as `null` until first successful fetch.
-- `error` is `ApiError | null`.
-
-### `useMutation(mutateFn)` — `src/hooks/useApi.ts` (same file)
-```typescript
-const { mutate, loading, error } = useMutation(taskService.createTask)
-// ...
-await mutate(input)   // returns the result or throws
-```
-- Does NOT auto-refetch; caller must call `refetch()` after success.
-- `loading` becomes `true` while the request is in-flight.
-
-## Key Components
-
-All reusable components live in `components/`. Platform-specific variants use `.ios.tsx` suffix.
-
-| Component | Purpose |
-|-----------|---------|
-| `ThemedText` | `<Text>` that reads colors from `useThemeColor()` |
-| `ThemedView` | `<View>` with theme-aware background |
-| `HapticTab` | Tab bar button that fires haptic feedback on press |
-| `IconSymbol` | Wraps `@expo/vector-icons`; resolves SF Symbols on iOS, MaterialIcons on Android/Web |
-| `ParallaxScrollView` | Scroll view with a parallax hero image at the top |
-| `ExternalLink` | Opens URLs in the in-app browser via `expo-web-browser` |
-| `Collapsible` | Accordion / expandable section |
-
-## Path Alias
-
-`@/*` resolves to the repo root. Use it for imports from `src/`, `constants/`, `components/`:
-
-```typescript
-import { ThemedText } from '@/components/ThemedText'
-import { useAuth } from '@/src/hooks/useAuth'
-import Colors from '@/constants/theme'
+```tsx
+const { data: tasks, loading, refetch } = useApi(() => taskService.getTasks());
 ```
 
-## Platform Targets
+**`useMutation(callback)`** — for writes. Does not fire automatically. Returns `{ data, loading, error, mutate }`.
 
-The app targets three platforms via Expo:
-- **iOS** — tested via Expo Go or simulator
-- **Android** — tested via Expo Go or emulator
-- **Web** — `react-native-web` adapter; served by Metro bundler
+```tsx
+const { mutate: createTask } = useMutation((input: CreateTaskInput) => taskService.createTask(input));
+const result = await createTask({ title: 'Buy milk', priority: 'low', ... });
+```
 
-Some features (haptics, native maps) are conditionally disabled or polyfilled on Web.
+After a mutation, manually call the relevant `refetch` from a `useApi` call to refresh the list.
 
-## Adding a New Screen
+## Auth State
 
-1. Create `app/(tabs)/newscreen.tsx` or `app/newscreen.tsx` for non-tab screens.
-2. Add a tab entry in `app/(tabs)/_layout.tsx` if it's a tab.
-3. Fetch data with `useApi`, mutate with `useMutation`.
-4. Add service functions to the appropriate file in `src/services/` and wire up the endpoint in `supabase/functions/rapid-task/`.
+`AuthContext` (`src/contexts/AuthContext.tsx`) exposes `{ user, session, isAuthenticated, isLoading, signup, login, logout }`. Consume via `useAuth()` from `src/hooks/useAuth.ts`. The context also re-exports the same hook, so either import path works.
+
+Token storage: `supabase_access_token` in `AsyncStorage`. Written by `AuthContext` on login/signup; read by `ApiClient` on every request; cleared on logout or 401.
+
+## Components
+
+`ThemedText` and `ThemedView` in `components/` adapt to the device color scheme via `useColorScheme`. Use these in any screen that should respect dark mode. `profile.tsx` uses plain RN `Text`/`View` with hardcoded light colors — this is a known inconsistency.
+
+`components/ui/icon-symbol.tsx` has a platform split: `icon-symbol.ios.tsx` for iOS SF Symbols, `icon-symbol.tsx` for cross-platform (Ionicons fallback). Most screens use `@expo/vector-icons` Ionicons directly.
+
+## Map Screen
+
+The map is rendered as a Leaflet HTML page injected into a `react-native-webview`. When the user's location updates, the screen calls `webViewRef.current.injectJavaScript(...)` to pan the map — no full re-render. Friend locations are fetched from the backend and embedded in the initial HTML; when the Supabase Realtime channel fires on the `user_locations` table, `fetchFriendLocations()` runs and re-renders the WebView with a new `key` prop (forcing a full reload with updated friend pins).
+
+Location is pushed to the backend every `3000ms` or `10m` traveled via `Location.watchPositionAsync`. The backend rejects the push if the user's `share_location` setting is false.
+
+## Type Safety Gaps
+
+There are a few `as any` casts in `app/(tabs)/index.tsx` (e.g., `category_id` on the `Task` type). The DB column is `category_id` but the `Task` interface uses `category: string`. Aligning the interface with the actual DB shape would remove these casts.
