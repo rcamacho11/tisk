@@ -323,10 +323,10 @@ Deno.serve(async (req: Request) => {
         if (typeof task.latitude === "number" && typeof task.longitude === "number") {
           const distance = haversineDistance(userLat, userLng, task.latitude, task.longitude)
           console.log(`[Tasks] Distance to task pin: ${distance.toFixed(2)}m`)
-          if (distance > 25) {
+          if (distance > 50) {
             return jsonResponse({
               success: false,
-              error: `You must be within 25 meters of the task location to complete it. You are ${Math.round(distance)}m away.`,
+              error: `You must be within 50 meters of the task location to complete it. You are ${Math.round(distance)}m away.`,
             }, 403)
           }
         }
