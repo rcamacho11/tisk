@@ -39,6 +39,7 @@ export default function TabLayout() {
     .onUpdate((event) => {
       if (navigating.current) return;
       const idx = getCurrentIndex();
+      if (idx === 0 && event.translationX > 0) return;
       const atStart = idx === 0 && event.translationX > 0;
       const atEnd = idx === TAB_ORDER.length - 1 && event.translationX < 0;
       translateX.value = (atStart || atEnd)
@@ -48,6 +49,7 @@ export default function TabLayout() {
     .onEnd((event) => {
       if (navigating.current) return;
       const idx = getCurrentIndex();
+      if (idx === 0 && event.translationX > 0) return;
       const goRight = event.velocityX < -VELOCITY_THRESHOLD ||
         (event.translationX < -SWIPE_THRESHOLD && event.velocityX < 0);
       const goLeft = event.velocityX > VELOCITY_THRESHOLD ||

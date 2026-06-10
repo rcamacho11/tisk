@@ -195,6 +195,25 @@ class AuthService {
     }
   }
 
+  async resolveUsername(username: string): Promise<{ email: string | null; error?: string }> {
+    try {
+      const response = await api.post<string>(
+        '/auth?action=resolve-username',
+        { username },
+        { authenticated: false },
+      )
+      if (response.data && typeof response.data === 'string') {
+        return { email: response.data }
+      }
+      if (response.error) {
+        return { email: null, error: response.error.message }
+      }
+      return { email: null, error: 'No account found with that username' }
+    } catch {
+      return { email: null, error: 'No account found with that username' }
+    }
+  }
+
   async checkEmailExists(email: string): Promise<boolean> {
     try {
       const response = await api.post<boolean>(

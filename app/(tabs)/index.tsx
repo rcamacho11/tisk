@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -214,8 +214,12 @@ export default function HomeScreen() {
   const [showMapPicker, setShowMapPicker] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [pickedLocation, setPickedLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const pickedLocationRef = useRef<{ lat: number; lng: number } | null>(null);
+  const [mapPickerHtml, setMapPickerHtml] = useState('');
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number }>({ lat: 37.7749, lng: -122.4194 });
   const [completingTaskId, setCompletingTaskId] = useState<string | null>(null);
+  const [tooFarDistance, setTooFarDistance] = useState<number | null>(null);
+  const [showTaskComplete, setShowTaskComplete] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -337,11 +341,8 @@ export default function HomeScreen() {
           loc.coords.latitude, loc.coords.longitude,
           task.latitude!, task.longitude!
         );
-        if (distance > 25) {
-          Alert.alert(
-            'Too far away',
-            `You must be within 25 meters of the task location to complete it. You are ${Math.round(distance)}m away.`
-          );
+        if (distance > 50) {
+          setTooFarDistance(Math.round(distance));
           setCompletingTaskId(null);
           return;
         }
@@ -357,6 +358,7 @@ export default function HomeScreen() {
       const { error } = await completeTask({ id, lat: 0, lng: 0 });
       if (error) { Alert.alert('Error', error.message); return; }
     }
+    setShowTaskComplete(true);
     refetchTasks();
   };
 
@@ -455,10 +457,10 @@ export default function HomeScreen() {
       {/* Filter Counters */}
       <ThemedView style={styles.counterRow}>
         {([
-          { key: 'all' as const, label: 'All', count: totalCount },
-          { key: 'active' as const, label: 'Active', count: totalCount - completedCount },
-          { key: 'completed' as const, label: 'Completed', count: completedCount },
-        ]).map(({ key, label, count }) => (
+          { key: 'all' as const, label: 'All', count: totalCount, icon: 'list' as const },
+          { key: 'active' as const, label: 'Active', count: totalCount - completedCount, icon: 'radio-button-on' as const },
+          { key: 'completed' as const, label: 'Completed', count: completedCount, icon: 'checkmark-done' as const },
+        ]).map(({ key, label, count, icon }) => (
           <TouchableOpacity
             key={key}
             style={[
@@ -468,11 +470,18 @@ export default function HomeScreen() {
             ]}
             onPress={() => setFilterBy(key)}
           >
+            <View style={styles.counterIconRow}>
+              <Ionicons
+                name={icon}
+                size={16}
+                color={filterBy === key ? '#fff' : '#888'}
+              />
+              <ThemedText style={[styles.counterLabel, filterBy === key && styles.counterTextActive]}>
+                {label}
+              </ThemedText>
+            </View>
             <ThemedText style={[styles.counterCount, filterBy === key && styles.counterTextActive]}>
               {count}
-            </ThemedText>
-            <ThemedText style={[styles.counterLabel, filterBy === key && styles.counterTextActive]}>
-              {label}
             </ThemedText>
           </TouchableOpacity>
         ))}
@@ -850,7 +859,17 @@ export default function HomeScreen() {
                 styles.locationPickerButton,
                 { borderColor: pickedLocation ? '#4CAF50' : borderColor },
               ]}
-              onPress={() => setShowMapPicker(true)}
+              onPress={() => {
+                pickedLocationRef.current = pickedLocation;
+                setMapPickerHtml(generatePickerMapHTML(
+                  userLocation.lat,
+                  userLocation.lng,
+                  isDark,
+                  pickedLocation?.lat,
+                  pickedLocation?.lng
+                ));
+                setShowMapPicker(true);
+              }}
             >
               <Ionicons
                 name={pickedLocation ? 'location' : 'location-outline'}
@@ -882,35 +901,89 @@ export default function HomeScreen() {
       <Modal visible={showMapPicker} animationType="slide">
         <ThemedView style={{ flex: 1 }}>
           <ThemedView style={styles.mapPickerHeader}>
-            <TouchableOpacity onPress={() => setShowMapPicker(false)}>
+            <TouchableOpacity onPress={() => {
+              pickedLocationRef.current = null;
+              setShowMapPicker(false);
+            }}>
               <ThemedText style={{ fontSize: 16, color: '#888' }}>Cancel</ThemedText>
             </TouchableOpacity>
             <ThemedText style={{ fontSize: 16, fontWeight: '700' }}>Drop a Pin</ThemedText>
-            <TouchableOpacity onPress={() => setShowMapPicker(false)}>
+            <TouchableOpacity onPress={() => {
+              if (pickedLocationRef.current) {
+                setPickedLocation(pickedLocationRef.current);
+              }
+              setShowMapPicker(false);
+            }}>
               <ThemedText style={{ fontSize: 16, color: '#4CAF50', fontWeight: '700' }}>Done</ThemedText>
             </TouchableOpacity>
           </ThemedView>
           <WebView
-            source={{
-              html: generatePickerMapHTML(
-                userLocation.lat,
-                userLocation.lng,
-                isDark,
-                pickedLocation?.lat,
-                pickedLocation?.lng
-              ),
-            }}
+            source={{ html: mapPickerHtml }}
             style={{ flex: 1 }}
             onMessage={(event) => {
               try {
                 const data = JSON.parse(event.nativeEvent.data);
                 if (typeof data.lat === 'number' && typeof data.lng === 'number') {
-                  setPickedLocation({ lat: data.lat, lng: data.lng });
+                  pickedLocationRef.current = { lat: data.lat, lng: data.lng };
                 }
               } catch {}
             }}
           />
         </ThemedView>
+      </Modal>
+
+      {/* Too Far Away Popup */}
+      <Modal visible={tooFarDistance !== null} transparent animationType="fade">
+        <View style={styles.tooFarOverlay}>
+          <ThemedView style={[styles.tooFarCard, { borderColor }]}>
+            <View style={styles.tooFarIconRow}>
+              <View style={styles.tooFarIconCircle}>
+                <Ionicons name="location-outline" size={32} color="#ff6b6b" />
+              </View>
+            </View>
+            <ThemedText style={styles.tooFarTitle}>Too far away</ThemedText>
+            <ThemedText style={styles.tooFarBody}>
+              You need to be within <ThemedText style={styles.tooFarBold}>50 meters</ThemedText> of the task location to complete it.
+            </ThemedText>
+            <View style={styles.tooFarDistancePill}>
+              <Ionicons name="navigate-outline" size={16} color="#ff6b6b" />
+              <ThemedText style={styles.tooFarDistanceText}>
+                You are {tooFarDistance}m away
+              </ThemedText>
+            </View>
+            <TouchableOpacity
+              style={styles.tooFarButton}
+              onPress={() => setTooFarDistance(null)}
+              activeOpacity={0.8}
+            >
+              <ThemedText style={styles.tooFarButtonText}>Got it</ThemedText>
+            </TouchableOpacity>
+          </ThemedView>
+        </View>
+      </Modal>
+
+      {/* Task Completed Popup */}
+      <Modal visible={showTaskComplete} transparent animationType="fade">
+        <View style={styles.tooFarOverlay}>
+          <ThemedView style={[styles.tooFarCard, { borderColor }]}>
+            <View style={styles.tooFarIconRow}>
+              <View style={styles.successIconCircle}>
+                <Ionicons name="checkmark-circle" size={36} color="#4CAF50" />
+              </View>
+            </View>
+            <ThemedText style={styles.tooFarTitle}>Task completed!</ThemedText>
+            <ThemedText style={styles.tooFarBody}>
+              Great job! You've successfully completed this task.
+            </ThemedText>
+            <TouchableOpacity
+              style={styles.successButton}
+              onPress={() => setShowTaskComplete(false)}
+              activeOpacity={0.8}
+            >
+              <ThemedText style={styles.tooFarButtonText}>Awesome</ThemedText>
+            </TouchableOpacity>
+          </ThemedView>
+        </View>
       </Modal>
     </ThemedView>
   );
@@ -942,10 +1015,15 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: '700',
   },
+  counterIconRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginBottom: 4,
+  },
   counterLabel: {
     fontSize: 12,
     opacity: 0.6,
-    marginTop: 2,
   },
   counterTextActive: {
     color: '#fff',
@@ -1257,5 +1335,93 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(128,128,128,0.2)',
+  },
+  tooFarOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 32,
+  },
+  tooFarCard: {
+    width: '100%',
+    borderRadius: 20,
+    padding: 28,
+    alignItems: 'center',
+    borderWidth: 1,
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+  },
+  tooFarIconRow: {
+    marginBottom: 16,
+  },
+  tooFarIconCircle: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: 'rgba(255,107,107,0.12)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  tooFarTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    marginBottom: 8,
+  },
+  tooFarBody: {
+    fontSize: 14,
+    opacity: 0.7,
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 16,
+  },
+  tooFarBold: {
+    fontWeight: '700',
+    opacity: 1,
+  },
+  tooFarDistancePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(255,107,107,0.1)',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    marginBottom: 20,
+  },
+  tooFarDistanceText: {
+    color: '#ff6b6b',
+    fontWeight: '700',
+    fontSize: 15,
+  },
+  tooFarButton: {
+    width: '100%',
+    backgroundColor: '#ff6b6b',
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  successIconCircle: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: 'rgba(76,175,80,0.12)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  successButton: {
+    width: '100%',
+    backgroundColor: '#4CAF50',
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  tooFarButtonText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 16,
   },
 });

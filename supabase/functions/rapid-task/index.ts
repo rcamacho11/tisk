@@ -140,6 +140,40 @@ Deno.serve(async (req: Request) => {
         return jsonResponse({ success: true, exists })
       }
 
+      if (action === "resolve-username") {
+        const username = body.username as string
+        if (!username) {
+          return jsonResponse({ success: false, error: "Username required" }, 400)
+        }
+
+        const { data: profile, error: profileErr } = await supabase
+          .from("profiles")
+          .select("user_id")
+          .eq("username", username)
+          .single()
+
+        if (profileErr || !profile) {
+          return jsonResponse({ success: false, error: "No account found with that username" }, 404)
+        }
+
+        const res = await fetch(
+          `${SUPABASE_URL}/auth/v1/admin/users/${profile.user_id}`,
+          {
+            headers: {
+              Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+              apikey: SERVICE_ROLE_KEY,
+            },
+          }
+        )
+        const userData = await res.json()
+
+        if (!userData.email) {
+          return jsonResponse({ success: false, error: "No account found with that username" }, 404)
+        }
+
+        return jsonResponse({ success: true, email: userData.email })
+      }
+
       const password = body.password as string
       const name = body.name as string
 
