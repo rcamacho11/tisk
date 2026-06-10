@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react'
 import { authService } from '../services/authService'
 import { Session, User } from '../types/api'
+import { supabase } from '../../utils/supabase'
 
 interface AuthResult {
   success: boolean
@@ -45,6 +46,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     }
     checkAuth()
+
+    // Keep supabase_access_token in sync when the SDK auto-refreshes the token
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (session?.access_token) {
+        try {
+          await AsyncStorage.setItem('supabase_access_token', session.access_token)
+        } catch {}
+      }
+    })
+
+    return () => subscription.unsubscribe()
   }, [])
 
   const signup = useCallback(async (email: string, password: string, name: string): Promise<AuthResult> => {

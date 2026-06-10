@@ -227,13 +227,17 @@ export default function HomeScreen() {
 
   useEffect(() => {
     (async () => {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') return;
+      let loc: Location.LocationObject | null = null;
       try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status === 'granted') {
-          const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
-          setUserLocation({ lat: loc.coords.latitude, lng: loc.coords.longitude });
-        }
-      } catch {}
+        loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      } catch {
+        loc = await Location.getLastKnownPositionAsync();
+      }
+      if (loc) {
+        setUserLocation({ lat: loc.coords.latitude, lng: loc.coords.longitude });
+      }
     })();
   }, []);
 
@@ -336,16 +340,37 @@ export default function HomeScreen() {
       setCompletingTaskId(id);
       try {
         const { status } = await Location.requestForegroundPermissionsAsync();
+        console.log('[location] permission status:', status);
         if (status !== 'granted') {
           Alert.alert('Error', 'Location permission is required to complete tasks');
           setCompletingTaskId(null);
           return;
         }
-        const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+        let loc: Location.LocationObject | null = null;
+        try {
+          console.log('[location] calling getCurrentPositionAsync...');
+          loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+          console.log('[location] getCurrentPositionAsync success:', loc.coords);
+        } catch (e) {
+          console.log('[location] getCurrentPositionAsync failed:', e);
+          try {
+            loc = await Location.getLastKnownPositionAsync();
+            console.log('[location] getLastKnownPositionAsync result:', loc?.coords ?? 'null');
+          } catch (e2) {
+            console.log('[location] getLastKnownPositionAsync also failed:', e2);
+          }
+        }
+        if (!loc) {
+          console.log('[location] no location available, aborting');
+          Alert.alert('Error', 'Failed to get your location. Please try again.');
+          setCompletingTaskId(null);
+          return;
+        }
         const distance = haversineDistance(
           loc.coords.latitude, loc.coords.longitude,
           task.latitude!, task.longitude!
         );
+        console.log('[location] distance to task:', distance);
         if (distance > 50) {
           setTooFarDistance(Math.round(distance));
           setCompletingTaskId(null);
@@ -353,8 +378,9 @@ export default function HomeScreen() {
         }
         const { error } = await completeTask({ id, lat: loc.coords.latitude, lng: loc.coords.longitude });
         if (error) { Alert.alert('Error', error.message); setCompletingTaskId(null); return; }
-      } catch {
-        Alert.alert('Error', 'Failed to get your location');
+      } catch (e) {
+        console.log('[location] outer catch error:', e);
+        Alert.alert('Error', 'Failed to get your location. Please try again.');
         setCompletingTaskId(null);
         return;
       }

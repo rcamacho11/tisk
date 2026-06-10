@@ -80,7 +80,14 @@ class LocationTaskService {
     const { status: foreground } = await Location.requestForegroundPermissionsAsync()
     if (foreground !== 'granted') return
 
-    const { status: background } = await Location.requestBackgroundPermissionsAsync()
+    // requestBackgroundPermissionsAsync throws in Expo Go instead of returning 'denied'
+    let background = 'denied'
+    try {
+      const { status } = await Location.requestBackgroundPermissionsAsync()
+      background = status
+    } catch {
+      return
+    }
     if (background !== 'granted') return
 
     const isRunning = await TaskManager.isTaskRegisteredAsync(LOCATION_TASK_NAME)

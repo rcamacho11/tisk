@@ -361,7 +361,11 @@ export default function MapScreen() {
         }
       } catch {}
 
-      const { status: bgStatus } = await Location.requestBackgroundPermissionsAsync();
+      let bgStatus = 'denied';
+      try {
+        const { status } = await Location.requestBackgroundPermissionsAsync();
+        bgStatus = status;
+      } catch {}
       if (bgStatus === 'granted') {
         const isRunning = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK).catch(() => false);
         if (!isRunning) {
