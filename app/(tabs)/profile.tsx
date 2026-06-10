@@ -38,7 +38,7 @@ export default function ProfileScreen() {
   const { data: profile, loading: profileLoading, refetch: refetchProfile } = useApi(() =>
     profileService.getProfile()
   );
-  const { data: settings, loading: settingsLoading } = useApi(() =>
+  const { data: settings, loading: settingsLoading, refetch: refetchSettings } = useApi(() =>
     settingsService.getSettings()
   );
   const { data: friends, loading: friendsLoading, refetch: refetchFriends } = useApi(() =>
@@ -60,10 +60,23 @@ export default function ProfileScreen() {
     bio: profile?.bio || '',
   });
 
+  const [localSettings, setLocalSettings] = useState<Record<string, boolean>>({});
+
+  const getSettingValue = (key: string) => {
+    if (key in localSettings) return localSettings[key];
+    return !!(settings as any)?.[key];
+  };
+
   const handleToggleSetting = async (key: string, value: boolean) => {
     if (key === 'dark_mode') setIsDark(value);
+    setLocalSettings((prev) => ({ ...prev, [key]: value }));
     const { error } = await updateSettings({ [key]: value });
-    if (error) Alert.alert('Error', error.message);
+    if (error) {
+      Alert.alert('Error', error.message);
+      setLocalSettings((prev) => ({ ...prev, [key]: !value }));
+    } else {
+      refetchSettings();
+    }
   };
 
   const [showAddFriend, setShowAddFriend] = useState(false);
@@ -128,20 +141,19 @@ export default function ProfileScreen() {
     refetchFriends();
   };
 
-  const handleLogout = async () => {
-    Alert.alert('Logout', 'Are you sure?', [
-      { text: 'Cancel', onPress: () => {} },
-      {
-        text: 'Logout',
-        onPress: async () => {
-          await logout();
-          router.replace('/login');
-        },
-      },
-    ]);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+
+  const handleLogout = () => {
+    setShowLogoutConfirm(true);
   };
 
-  if (profileLoading || settingsLoading) {
+  const confirmLogout = async () => {
+    setShowLogoutConfirm(false);
+    await logout();
+    router.replace('/login');
+  };
+
+  if (profileLoading) {
     return (
       <ThemedView style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
         <ActivityIndicator size="large" color="#4CAF50" />
@@ -348,7 +360,7 @@ export default function ProfileScreen() {
               <ThemedText style={styles.settingLabel}>Dark Mode</ThemedText>
             </View>
             <Switch
-              value={isDark}
+              value={getSettingValue('dark_mode')}
               onValueChange={(v) => handleToggleSetting('dark_mode', v)}
               trackColor={{ false: '#ccc', true: '#4CAF50' }} thumbColor="#fff"
             />
@@ -359,7 +371,7 @@ export default function ProfileScreen() {
               <ThemedText style={styles.settingLabel}>Notifications</ThemedText>
             </View>
             <Switch
-              value={!!settings?.notifications_enabled}
+              value={getSettingValue('notifications_enabled')}
               onValueChange={(v) => handleToggleSetting('notifications_enabled', v)}
               trackColor={{ false: '#ccc', true: '#4CAF50' }} thumbColor="#fff"
             />
@@ -370,7 +382,7 @@ export default function ProfileScreen() {
               <ThemedText style={styles.settingLabel}>Private Profile</ThemedText>
             </View>
             <Switch
-              value={!!settings?.private_profile}
+              value={getSettingValue('private_profile')}
               onValueChange={(v) => handleToggleSetting('private_profile', v)}
               trackColor={{ false: '#ccc', true: '#4CAF50' }} thumbColor="#fff"
             />
@@ -384,7 +396,7 @@ export default function ProfileScreen() {
               </ThemedText>
             </View>
             <Switch
-              value={!!settings?.share_location}
+              value={getSettingValue('share_location')}
               onValueChange={(v) => handleToggleSetting('share_location', v)}
               trackColor={{ false: '#ccc', true: '#4CAF50' }} thumbColor="#fff"
             />
@@ -449,6 +461,36 @@ export default function ProfileScreen() {
               </TouchableOpacity>
             </View>
           </View>
+        </View>
+      </Modal>
+      {/* Logout Confirmation Modal */}
+      <Modal visible={showLogoutConfirm} transparent animationType="fade">
+        <View style={styles.logoutOverlay}>
+          <ThemedView style={[styles.logoutCard, { borderColor }]}>
+            <View style={styles.logoutIconRow}>
+              <View style={styles.logoutIconCircle}>
+                <Ionicons name="log-out-outline" size={32} color="#ff6b6b" />
+              </View>
+            </View>
+            <ThemedText style={styles.logoutConfirmTitle}>Logout</ThemedText>
+            <ThemedText style={styles.logoutConfirmBody}>
+              Are you sure you want to log out?
+            </ThemedText>
+            <TouchableOpacity
+              style={styles.logoutConfirmButton}
+              onPress={confirmLogout}
+              activeOpacity={0.8}
+            >
+              <ThemedText style={styles.logoutConfirmButtonText}>Logout</ThemedText>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.logoutCancelButton}
+              onPress={() => setShowLogoutConfirm(false)}
+              activeOpacity={0.8}
+            >
+              <ThemedText style={styles.logoutCancelButtonText}>Cancel</ThemedText>
+            </TouchableOpacity>
+          </ThemedView>
         </View>
       </Modal>
     </ThemedView>
@@ -665,5 +707,71 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  logoutOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 32,
+  },
+  logoutCard: {
+    width: '100%',
+    borderRadius: 20,
+    padding: 28,
+    alignItems: 'center',
+    borderWidth: 1,
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+  },
+  logoutIconRow: {
+    marginBottom: 16,
+  },
+  logoutIconCircle: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: 'rgba(255,107,107,0.12)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  logoutConfirmTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    marginBottom: 8,
+  },
+  logoutConfirmBody: {
+    fontSize: 14,
+    opacity: 0.7,
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 20,
+  },
+  logoutConfirmButton: {
+    width: '100%',
+    backgroundColor: '#ff6b6b',
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  logoutConfirmButtonText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 16,
+  },
+  logoutCancelButton: {
+    width: '100%',
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  logoutCancelButtonText: {
+    fontWeight: '600',
+    fontSize: 16,
+    opacity: 0.6,
   },
 });

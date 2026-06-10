@@ -5,6 +5,7 @@ import { useEffect } from 'react';
 import 'react-native-reanimated';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
+import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { AuthProvider } from '@/src/contexts/AuthContext';
 import { AppThemeProvider } from '@/src/contexts/ThemeContext';
@@ -36,10 +37,13 @@ function AuthGuard() {
 
 function RootLayoutInner() {
   const colorScheme = useColorScheme();
-  const bgColor = colorScheme === 'dark' ? DarkTheme.colors.background : DefaultTheme.colors.background;
+  const bgColor = Colors[colorScheme ?? 'light'].background;
 
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+    <ThemeProvider value={colorScheme === 'dark'
+      ? { ...DarkTheme, colors: { ...DarkTheme.colors, background: bgColor } }
+      : { ...DefaultTheme, colors: { ...DefaultTheme.colors, background: bgColor } }
+    }>
       <AuthProvider>
         <AuthGuard />
         <SafeAreaView style={{ flex: 1, backgroundColor: bgColor }} edges={['top']}>
@@ -49,7 +53,7 @@ function RootLayoutInner() {
             <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
           </Stack>
         </SafeAreaView>
-        <StatusBar style="auto" />
+        <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} backgroundColor={bgColor} />
       </AuthProvider>
     </ThemeProvider>
   );

@@ -1,8 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
+import { useFocusEffect } from '@react-navigation/native';
 import { useLocalSearchParams } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Linking,
@@ -94,55 +95,17 @@ const generateMapHTML = (latitude: number, longitude: number, isDark: boolean, f
     `;
   }).join('\n');
 
-  const taskMarkersJS = tasks
-    .filter((t) => t.latitude != null && t.longitude != null && !t.completed)
-    .map((t) => {
-      const priorityColor = t.priority === 'high' ? '#ff6b6b' : t.priority === 'medium' ? '#ffa500' : '#4CAF50';
-      const escaped = t.title.replace(/'/g, "\\'").replace(/"/g, '&quot;');
-      return `
-        L.circle([${t.latitude}, ${t.longitude}], {
-          radius: 5,
-          color: '${priorityColor}',
-          fillColor: '${priorityColor}',
-          fillOpacity: 0.15,
-          weight: 2,
-          dashArray: '6 4'
-        }).addTo(map);
-        L.marker([${t.latitude}, ${t.longitude}], {
-          icon: L.icon({
-            iconUrl: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjgiIGhlaWdodD0iNDAiIHZpZXdCb3g9IjAgMCAyOCA0MCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNMTQgMEM2LjI2OCAwIDAgNi4yNjggMCAxNGMwIDEwLjUgMTQgMjYgMTQgMjZTMjggMjQuNSAyOCAxNEMyOCA2LjI2OCAyMS43MzIgMCAxNCAwWiIgZmlsbD0iI0ZGNkI2QiIvPjxjaXJjbGUgY3g9IjE0IiBjeT0iMTQiIHI9IjciIGZpbGw9IiNmZmYiLz48cGF0aCBkPSJNMTEgMTRMMTMgMTZMMTcgMTIiIHN0cm9rZT0iI0ZGNkI2QiIgc3Ryb2tlLXdpZHRoPSIyIiBmaWxsPSJub25lIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz48L3N2Zz4=',
-            iconSize: [28, 40],
-            iconAnchor: [14, 40],
-            popupAnchor: [0, -40]
-          })
-        }).addTo(map).bindPopup('<div class="info"><strong>${escaped}</strong><br/><span style="color:${priorityColor};font-weight:600">${(t.priority || 'medium').charAt(0).toUpperCase() + (t.priority || 'medium').slice(1)} priority</span><br/><span style="font-size:12px;opacity:0.7">Be within 5m to complete</span></div>');
-      `;
-    }).join('\n');
+  const initialTasksJson = JSON.stringify(
+    tasks
+      .filter((t) => t.latitude != null && t.longitude != null && !t.completed)
+      .map((t) => ({ latitude: t.latitude, longitude: t.longitude, title: t.title, priority: t.priority }))
+  );
 
-  const friendTaskMarkersJS = friendTasks
-    .filter((t) => t.latitude != null && t.longitude != null && !t.completed)
-    .map((t) => {
-      const escaped = t.title.replace(/'/g, "\\'").replace(/"/g, '&quot;');
-      const owner = (t.profile?.username || '').replace(/'/g, "\\'");
-      return `
-        L.circle([${t.latitude}, ${t.longitude}], {
-          radius: 5,
-          color: '#007AFF',
-          fillColor: '#007AFF',
-          fillOpacity: 0.12,
-          weight: 2,
-          dashArray: '6 4'
-        }).addTo(map);
-        L.marker([${t.latitude}, ${t.longitude}], {
-          icon: L.icon({
-            iconUrl: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjgiIGhlaWdodD0iNDAiIHZpZXdCb3g9IjAgMCAyOCA0MCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNMTQgMEM2LjI2OCAwIDAgNi4yNjggMCAxNGMwIDEwLjUgMTQgMjYgMTQgMjZTMjggMjQuNSAyOCAxNEMyOCA2LjI2OCAyMS43MzIgMCAxNCAwWiIgZmlsbD0iIzAwN0FGRiIvPjxjaXJjbGUgY3g9IjE0IiBjeT0iMTQiIHI9IjciIGZpbGw9IiNmZmYiLz48cGF0aCBkPSJNMTEgMTRMMTMgMTZMMTcgMTIiIHN0cm9rZT0iIzAwN0FGRiIgc3Ryb2tlLXdpZHRoPSIyIiBmaWxsPSJub25lIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz48L3N2Zz4=',
-            iconSize: [28, 40],
-            iconAnchor: [14, 40],
-            popupAnchor: [0, -40]
-          })
-        }).addTo(map).bindPopup('<div class="info"><strong>${escaped}</strong><br/><span style="color:#007AFF;font-weight:600">${owner}\\'s task</span><br/><span style="font-size:12px;opacity:0.7">5m radius</span></div>');
-      `;
-    }).join('\n');
+  const initialFriendTasksJson = JSON.stringify(
+    friendTasks
+      .filter((t) => t.latitude != null && t.longitude != null && !t.completed)
+      .map((t) => ({ latitude: t.latitude, longitude: t.longitude, title: t.title, profile: { username: t.profile?.username } }))
+  );
 
   const tileUrl = isDark
     ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
@@ -216,9 +179,37 @@ const generateMapHTML = (latitude: number, longitude: number, isDark: boolean, f
 
         ${friendMarkersJS}
 
-        ${taskMarkersJS}
-
-        ${friendTaskMarkersJS}
+        var taskLayer = L.layerGroup().addTo(map);
+        var friendTaskLayer = L.layerGroup().addTo(map);
+        var TASK_PIN = L.icon({
+          iconUrl: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjgiIGhlaWdodD0iNDAiIHZpZXdCb3g9IjAgMCAyOCA0MCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNMTQgMEM2LjI2OCAwIDAgNi4yNjggMCAxNGMwIDEwLjUgMTQgMjYgMTQgMjZTMjggMjQuNSAyOCAxNEMyOCA2LjI2OCAyMS43MzIgMCAxNCAwWiIgZmlsbD0iI0ZGNkI2QiIvPjxjaXJjbGUgY3g9IjE0IiBjeT0iMTQiIHI9IjciIGZpbGw9IiNmZmYiLz48cGF0aCBkPSJNMTEgMTRMMTMgMTZMMTcgMTIiIHN0cm9rZT0iI0ZGNkI2QiIgc3Ryb2tlLXdpZHRoPSIyIiBmaWxsPSJub25lIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz48L3N2Zz4=',
+          iconSize: [28, 40], iconAnchor: [14, 40], popupAnchor: [0, -40]
+        });
+        var FRIEND_TASK_PIN = L.icon({
+          iconUrl: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjgiIGhlaWdodD0iNDAiIHZpZXdCb3g9IjAgMCAyOCA0MCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNMTQgMEM2LjI2OCAwIDAgNi4yNjggMCAxNGMwIDEwLjUgMTQgMjYgMTQgMjZTMjggMjQuNSAyOCAxNEMyOCA2LjI2OCAyMS43MzIgMCAxNCAwWiIgZmlsbD0iIzAwN0FGRiIvPjxjaXJjbGUgY3g9IjE0IiBjeT0iMTQiIHI9IjciIGZpbGw9IiNmZmYiLz48cGF0aCBkPSJNMTEgMTRMMTMgMTZMMTcgMTIiIHN0cm9rZT0iIzAwN0FGRiIgc3Ryb2tlLXdpZHRoPSIyIiBmaWxsPSJub25lIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz48L3N2Zz4=',
+          iconSize: [28, 40], iconAnchor: [14, 40], popupAnchor: [0, -40]
+        });
+        window.updateTaskMarkers = function(tasksJson) {
+          taskLayer.clearLayers();
+          JSON.parse(tasksJson).forEach(function(t) {
+            var pc = t.priority === 'high' ? '#ff6b6b' : t.priority === 'medium' ? '#ffa500' : '#4CAF50';
+            var title = (t.title || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+            var pl = (t.priority || 'medium'); pl = pl.charAt(0).toUpperCase() + pl.slice(1);
+            L.circle([t.latitude, t.longitude], { radius: 50, color: pc, fillColor: pc, fillOpacity: 0.15, weight: 2, dashArray: '6 4' }).addTo(taskLayer);
+            L.marker([t.latitude, t.longitude], { icon: TASK_PIN }).addTo(taskLayer).bindPopup('<div class="info"><strong>' + title + '</strong><br/><span style="color:' + pc + ';font-weight:600">' + pl + ' priority</span><br/><span style="font-size:12px;opacity:0.7">Be within 50m to complete</span></div>');
+          });
+        };
+        window.updateFriendTaskMarkers = function(tasksJson) {
+          friendTaskLayer.clearLayers();
+          JSON.parse(tasksJson).forEach(function(t) {
+            var title = (t.title || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+            var owner = (t.profile && t.profile.username || '').replace(/&/g,'&amp;').replace(/</g,'&lt;');
+            L.circle([t.latitude, t.longitude], { radius: 50, color: '#007AFF', fillColor: '#007AFF', fillOpacity: 0.12, weight: 2, dashArray: '6 4' }).addTo(friendTaskLayer);
+            L.marker([t.latitude, t.longitude], { icon: FRIEND_TASK_PIN }).addTo(friendTaskLayer).bindPopup('<div class="info"><strong>' + title + '</strong><br/><span style="color:#007AFF;font-weight:600">' + owner + '&#39;s task</span><br/><span style="font-size:12px;opacity:0.7">50m radius</span></div>');
+          });
+        };
+        window.updateTaskMarkers(${JSON.stringify(initialTasksJson)});
+        window.updateFriendTaskMarkers(${JSON.stringify(initialFriendTasksJson)});
 
         window.updateLocation = function(lat, lng) {
           marker.setLatLng([lat, lng]);
@@ -251,6 +242,12 @@ export default function MapScreen() {
   const [selectedFriend, setSelectedFriend] = useState<FriendLocation | null>(null);
   const [selectedFriendAddress, setSelectedFriendAddress] = useState<string | null>(null);
   const [showTasksList, setShowTasksList] = useState(false);
+  const lastSendRef = useRef<number>(0);
+  const lastCoordsRef = useRef<{ lat: number; lng: number } | null>(null);
+
+  const MOVING_INTERVAL = 45 * 1000;
+  const STATIONARY_INTERVAL = 5 * 60 * 1000;
+  const MOVING_SPEED_THRESHOLD = 0.5; // m/s — above this counts as moving
 
   const fetchTasks = async () => {
     const { data } = await taskService.getTasks();
@@ -262,11 +259,16 @@ export default function MapScreen() {
     if (data && Array.isArray(data)) setFriendTasks(data);
   };
 
+  useFocusEffect(
+    useCallback(() => {
+      fetchTasks();
+      fetchFriendTasks();
+    }, [])
+  );
+
   useEffect(() => {
     startTracking();
     fetchFriendLocations();
-    fetchTasks();
-    fetchFriendTasks();
 
     const channel = supabase
       .channel('friend-locations')
@@ -295,6 +297,26 @@ export default function MapScreen() {
       }
     }
   }, [taskLat, taskLng]);
+
+  useEffect(() => {
+    if (!webViewRef.current) return;
+    const data = tasks
+      .filter(t => t.latitude != null && t.longitude != null && !t.completed)
+      .map(t => ({ latitude: t.latitude, longitude: t.longitude, title: t.title, priority: t.priority }));
+    webViewRef.current.injectJavaScript(
+      `if(window.updateTaskMarkers) window.updateTaskMarkers(${JSON.stringify(JSON.stringify(data))});`
+    );
+  }, [tasks]);
+
+  useEffect(() => {
+    if (!webViewRef.current) return;
+    const data = friendTasks
+      .filter(t => t.latitude != null && t.longitude != null && !t.completed)
+      .map(t => ({ latitude: t.latitude, longitude: t.longitude, title: t.title, profile: { username: t.profile?.username } }));
+    webViewRef.current.injectJavaScript(
+      `if(window.updateFriendTaskMarkers) window.updateFriendTaskMarkers(${JSON.stringify(JSON.stringify(data))});`
+    );
+  }, [friendTasks]);
 
   const fetchFriendLocations = async () => {
     const { data } = await locationService.getFriendsLocations();
@@ -344,10 +366,10 @@ export default function MapScreen() {
         const isRunning = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK).catch(() => false);
         if (!isRunning) {
           await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
-            accuracy: Location.Accuracy.Balanced,
-            timeInterval: 5 * 60 * 1000,
-            distanceInterval: 50,
-            deferredUpdatesInterval: 5 * 60 * 1000,
+            accuracy: Location.Accuracy.Low,
+            timeInterval: 15 * 60 * 1000,
+            distanceInterval: 100,
+            deferredUpdatesInterval: 15 * 60 * 1000,
             showsBackgroundLocationIndicator: true,
             foregroundService: {
               notificationTitle: 'Tisk',
@@ -361,8 +383,8 @@ export default function MapScreen() {
       const subscription = await Location.watchPositionAsync(
         {
           accuracy: Location.Accuracy.High,
-          timeInterval: 10000,
-          distanceInterval: 10,
+          timeInterval: 5000,
+          distanceInterval: 5,
         },
         async (newLocation) => {
           setLocation(newLocation);
@@ -370,6 +392,26 @@ export default function MapScreen() {
             webViewRef.current.injectJavaScript(
               `window.updateLocation(${newLocation.coords.latitude}, ${newLocation.coords.longitude});`
             );
+          }
+
+          const speed = newLocation.coords.speed ?? 0;
+          const isMoving = speed > MOVING_SPEED_THRESHOLD;
+          const interval = isMoving ? MOVING_INTERVAL : STATIONARY_INTERVAL;
+          const now = Date.now();
+
+          if (now - lastSendRef.current >= interval) {
+            lastSendRef.current = now;
+            lastCoordsRef.current = {
+              lat: newLocation.coords.latitude,
+              lng: newLocation.coords.longitude,
+            };
+            await locationService.sendLocation({
+              latitude: newLocation.coords.latitude,
+              longitude: newLocation.coords.longitude,
+              address: '',
+              accuracy: newLocation.coords.accuracy ?? 0,
+              timestamp: new Date(newLocation.timestamp).toISOString(),
+            });
           }
         }
       );
@@ -525,7 +567,7 @@ export default function MapScreen() {
       {location && (
         <>
           <WebView
-            key={friendLocations.map(f => `${f.user_id}-${f.sharing_enabled}`).join(',') + '|' + tasks.filter(t => t.latitude != null).map(t => t.id).join(',') + '|' + friendTasks.filter(t => t.latitude != null).map(t => t.id).join(',')}
+            key={friendLocations.map(f => `${f.user_id}-${f.sharing_enabled}`).join(',')}
             ref={webViewRef}
             source={{
               html: generateMapHTML(

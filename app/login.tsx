@@ -6,6 +6,7 @@ import {
   Alert,
   Animated,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   ScrollView,
   StyleSheet,
@@ -44,6 +45,7 @@ export default function LoginScreen() {
   const [otpValue, setOtpValue] = useState('');
   const [resetEmail, setResetEmail] = useState('');
   const otpInputRef = useRef<TextInput | null>(null);
+  const scrollViewRef = useRef<ScrollView>(null);
   const bannerOpacity = useRef(new Animated.Value(0)).current;
 
   const [formData, setFormData] = useState({
@@ -52,6 +54,11 @@ export default function LoginScreen() {
     confirmPassword: '',
     name: '',
   });
+
+  const [popup, setPopup] = useState<{
+    type: 'no-account' | 'wrong-password';
+    emailForReset?: string;
+  } | null>(null);
 
   const colors = {
     bg: dark ? '#151718' : '#F2F2F7',
@@ -110,33 +117,34 @@ export default function LoginScreen() {
 
   const handleLogin = async () => {
     hideBanner();
-    if (!formData.email.trim() || !formData.password.trim()) {
-      showBanner({ type: 'error', title: 'Missing Fields', message: 'Please fill in your email and password.' });
-      return;
-    }
-    if (!validateEmail(formData.email)) {
-      showBanner({ type: 'error', title: 'Invalid Email', message: 'Please enter a valid email address.' });
+    const identifier = formData.email.trim();
+    if (!identifier || !formData.password.trim()) {
+      showBanner({ type: 'error', title: 'Missing Fields', message: 'Please fill in your email or username and password.' });
       return;
     }
 
-    const result = await login(formData.email, formData.password);
+    let emailToUse = identifier;
+    const isEmail = validateEmail(identifier);
+
+    if (!isEmail) {
+      const resolved = await authService.resolveUsername(identifier);
+      if (!resolved.email) {
+        setPopup({ type: 'no-account' });
+        return;
+      }
+      emailToUse = resolved.email;
+    }
+
+    const result = await login(emailToUse, formData.password);
     if (result.success) { router.replace('/(tabs)'); return; }
 
     const raw = result.error || '';
     if (raw.toLowerCase().includes('invalid login credentials')) {
-      const exists = await authService.checkEmailExists(formData.email);
+      const exists = await authService.checkEmailExists(emailToUse);
       if (exists) {
-        showBanner({
-          type: 'error', title: 'Incorrect Password',
-          message: 'The password you entered is incorrect.',
-          action: { label: 'Forgot Password?', onPress: () => goToForgot(formData.email) },
-        });
+        setPopup({ type: 'wrong-password', emailForReset: emailToUse });
       } else {
-        showBanner({
-          type: 'info', title: 'No Account Found',
-          message: 'No account exists with this email.',
-          action: { label: 'Create Account', onPress: () => switchMode('signup', true) },
-        });
+        setPopup({ type: 'no-account' });
       }
     } else {
       showBanner({ type: 'error', title: 'Login Failed', message: friendlyError(raw) });
@@ -346,7 +354,7 @@ export default function LoginScreen() {
 
   const getSubtitle = () => {
     switch (mode) {
-      case 'login': return 'Login to continue';
+      case 'login': return 'Use your email or username to continue';
       case 'signup': return 'Fill in the details to get started';
       case 'forgot-email': return "Enter your email and we'll send you a code";
       case 'forgot-code': return `Enter the 6-digit code sent to ${resetEmail}`;
@@ -386,11 +394,14 @@ export default function LoginScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.bg }]}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.flex}>
+      <KeyboardAvoidingView behavior="padding" keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20} style={styles.flex}>
         <ScrollView
+          ref={scrollViewRef}
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled">
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
+          automaticallyAdjustKeyboardInsets>
 
           <View style={styles.logoSection}>
             <View style={[styles.logoCircle, { backgroundColor: dark ? '#1E3A1E' : '#E8F5E9' }]}>
@@ -455,15 +466,19 @@ export default function LoginScreen() {
               </View>
             )}
 
-            {/* EMAIL — login, signup, forgot-email */}
+            {/* EMAIL / USERNAME — login, signup, forgot-email */}
             {(mode === 'login' || mode === 'signup' || mode === 'forgot-email') && (
               <View>
-                <ThemedText style={[styles.label, { color: colors.textSecondary }]}>Email</ThemedText>
+                <ThemedText style={[styles.label, { color: colors.textSecondary }]}>
+                  {mode === 'login' ? 'Email or Username' : 'Email'}
+                </ThemedText>
                 <View style={[styles.inputContainer, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}>
-                  <Ionicons name="mail-outline" size={20} color={colors.textSecondary} />
-                  <TextInput style={[styles.input, { color: colors.text }]} placeholder="your@email.com" placeholderTextColor={colors.placeholder}
+                  <Ionicons name={mode === 'login' ? 'person-outline' : 'mail-outline'} size={20} color={colors.textSecondary} />
+                  <TextInput style={[styles.input, { color: colors.text }]}
+                    placeholder={mode === 'login' ? 'Email or username' : 'your@email.com'}
+                    placeholderTextColor={colors.placeholder}
                     value={formData.email} onChangeText={(t) => { setFormData({ ...formData, email: t }); if (banner) hideBanner(); }}
-                    keyboardType="email-address" autoCapitalize="none" editable={!busy} />
+                    keyboardType={mode === 'login' ? 'default' : 'email-address'} autoCapitalize="none" editable={!busy} />
                 </View>
               </View>
             )}
@@ -611,6 +626,68 @@ export default function LoginScreen() {
           )}
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* No Account Found Popup */}
+      <Modal visible={popup?.type === 'no-account'} transparent animationType="fade">
+        <View style={styles.popupOverlay}>
+          <View style={[styles.popupCard, { backgroundColor: colors.card }]}>
+            <View style={styles.popupIconRow}>
+              <View style={[styles.popupIconCircle, { backgroundColor: 'rgba(0,122,255,0.12)' }]}>
+                <Ionicons name="person-outline" size={32} color="#007AFF" />
+              </View>
+            </View>
+            <ThemedText style={styles.popupTitle}>No Account Found</ThemedText>
+            <ThemedText style={[styles.popupBody, { color: colors.textSecondary }]}>
+              We couldn't find an account with that {validateEmail(formData.email.trim()) ? 'email' : 'username'}. Would you like to create one?
+            </ThemedText>
+            <TouchableOpacity
+              style={[styles.popupPrimaryButton, { backgroundColor: '#007AFF' }]}
+              onPress={() => setPopup(null)}
+              activeOpacity={0.8}
+            >
+              <ThemedText style={styles.popupButtonText}>Try Again</ThemedText>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.popupSecondaryButton}
+              onPress={() => { setPopup(null); switchMode('signup', true); }}
+              activeOpacity={0.8}
+            >
+              <ThemedText style={[styles.popupSecondaryText, { color: colors.textSecondary }]}>Create Account</ThemedText>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Wrong Password Popup */}
+      <Modal visible={popup?.type === 'wrong-password'} transparent animationType="fade">
+        <View style={styles.popupOverlay}>
+          <View style={[styles.popupCard, { backgroundColor: colors.card }]}>
+            <View style={styles.popupIconRow}>
+              <View style={[styles.popupIconCircle, { backgroundColor: 'rgba(255,107,107,0.12)' }]}>
+                <Ionicons name="lock-closed-outline" size={32} color="#ff6b6b" />
+              </View>
+            </View>
+            <ThemedText style={styles.popupTitle}>Incorrect Password</ThemedText>
+            <ThemedText style={[styles.popupBody, { color: colors.textSecondary }]}>
+              The password you entered is incorrect. You can try again or reset your password.
+            </ThemedText>
+            <TouchableOpacity
+              style={[styles.popupPrimaryButton, { backgroundColor: '#ff6b6b' }]}
+              onPress={() => setPopup(null)}
+              activeOpacity={0.8}
+            >
+              <ThemedText style={styles.popupButtonText}>Try Again</ThemedText>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.popupSecondaryButton}
+              onPress={() => { setPopup(null); goToForgot(popup?.emailForReset || formData.email); }}
+              activeOpacity={0.8}
+            >
+              <ThemedText style={[styles.popupSecondaryText, { color: colors.textSecondary }]}>Reset Password</ThemedText>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -665,4 +742,65 @@ const styles = StyleSheet.create({
   toggleContainer: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', paddingVertical: 20 },
   toggleText: { fontSize: 14 },
   toggleLink: { color: '#4CAF50', fontWeight: '700', fontSize: 14 },
+  popupOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 32,
+  },
+  popupCard: {
+    width: '100%',
+    borderRadius: 20,
+    padding: 28,
+    alignItems: 'center',
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+  },
+  popupIconRow: {
+    marginBottom: 16,
+  },
+  popupIconCircle: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  popupTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    marginBottom: 8,
+  },
+  popupBody: {
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 20,
+  },
+  popupPrimaryButton: {
+    width: '100%',
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  popupButtonText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 16,
+  },
+  popupSecondaryButton: {
+    width: '100%',
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  popupSecondaryText: {
+    fontWeight: '600',
+    fontSize: 16,
+  },
 });
