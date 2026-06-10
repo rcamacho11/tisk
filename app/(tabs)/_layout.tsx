@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { BottomTabBar, BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { Tabs, usePathname, router } from 'expo-router';
 import React, { useCallback, useRef } from 'react';
 import { Dimensions } from 'react-native';
@@ -21,6 +22,7 @@ const VELOCITY_THRESHOLD = 400;
 
 export default function TabLayout() {
   const colorScheme = useColorScheme();
+  const bgColor = Colors[colorScheme ?? 'light'].background;
   const pathname = usePathname();
   const navigating = useRef(false);
   const translateX = useSharedValue(0);
@@ -76,16 +78,25 @@ export default function TabLayout() {
     })
     .runOnJS(true);
 
-  const animatedStyle = useAnimatedStyle(() => ({
+  const contentAnimatedStyle = useAnimatedStyle(() => ({
     flex: 1,
     transform: [{ translateX: translateX.value }],
   }));
 
+  const tabBarCounterStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: -translateX.value }],
+  }));
+
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
+    <GestureHandlerRootView style={{ flex: 1, backgroundColor: bgColor }}>
       <GestureDetector gesture={swipeGesture}>
-        <Animated.View style={animatedStyle} collapsable={false}>
+        <Animated.View style={contentAnimatedStyle} collapsable={false}>
           <Tabs
+            tabBar={(props: BottomTabBarProps) => (
+              <Animated.View style={tabBarCounterStyle}>
+                <BottomTabBar {...props} />
+              </Animated.View>
+            )}
             screenOptions={{
               tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
               headerShown: false,
