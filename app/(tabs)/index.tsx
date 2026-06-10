@@ -213,6 +213,8 @@ export default function HomeScreen() {
   const [newCategoryName, setNewCategoryName] = useState('');
   const [showMapPicker, setShowMapPicker] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showTimePicker, setShowTimePicker] = useState(false);
+  const [tempDate, setTempDate] = useState<Date>(new Date());
   const [pickedLocation, setPickedLocation] = useState<{ lat: number; lng: number } | null>(null);
   const pickedLocationRef = useRef<{ lat: number; lng: number } | null>(null);
   const [mapPickerHtml, setMapPickerHtml] = useState('');
@@ -220,6 +222,8 @@ export default function HomeScreen() {
   const [completingTaskId, setCompletingTaskId] = useState<string | null>(null);
   const [tooFarDistance, setTooFarDistance] = useState<number | null>(null);
   const [showTaskComplete, setShowTaskComplete] = useState(false);
+  const [showTaskSaved, setShowTaskSaved] = useState<'created' | 'updated' | null>(null);
+  const [deleteConfirmTaskId, setDeleteConfirmTaskId] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -295,7 +299,8 @@ export default function HomeScreen() {
         Alert.alert('Error', error.message);
         return;
       }
-      Alert.alert('Success', 'Task updated');
+      setShowModal(false);
+      setShowTaskSaved('updated');
     } else {
       const { error } = await createTask({
         title: modalInput.trim(),
@@ -311,10 +316,10 @@ export default function HomeScreen() {
         Alert.alert('Error', error.message);
         return;
       }
-      Alert.alert('Success', 'Task created');
+      setShowModal(false);
+      setShowTaskSaved('created');
     }
 
-    setShowModal(false);
     refetchTasks();
   };
 
@@ -362,18 +367,16 @@ export default function HomeScreen() {
     refetchTasks();
   };
 
-  const handleDeleteTask = async (id: string) => {
-    Alert.alert('Delete Task', 'Are you sure?', [
-      { text: 'Cancel', onPress: () => {} },
-      {
-        text: 'Delete',
-        onPress: async () => {
-          const { error } = await deleteTask(id);
-          if (error) { Alert.alert('Error', error.message); return; }
-          refetchTasks();
-        },
-      },
-    ]);
+  const handleDeleteTask = (id: string) => {
+    setDeleteConfirmTaskId(id);
+  };
+
+  const confirmDeleteTask = async () => {
+    if (!deleteConfirmTaskId) return;
+    const { error } = await deleteTask(deleteConfirmTaskId);
+    setDeleteConfirmTaskId(null);
+    if (error) { Alert.alert('Error', error.message); return; }
+    refetchTasks();
   };
 
   const getFilteredAndSortedTasks = () => {
@@ -398,9 +401,8 @@ export default function HomeScreen() {
       filtered.sort((a, b) => (a.category || '').localeCompare(b.category || ''));
     } else {
       filtered.sort((a, b) => {
-        const dateA = new Date(a.dueDate || 0).getTime();
-        const dateB = new Date(b.dueDate || 0).getTime();
-        return dateA - dateB;
+        const parseDate = (d?: string | null) => d ? new Date(d.includes('T') ? d : d + 'T00:00:00').getTime() : 0;
+        return parseDate(a.dueDate) - parseDate(b.dueDate);
       });
     }
 
@@ -417,24 +419,44 @@ export default function HomeScreen() {
   };
 
   const formatDateDisplay = (dateStr: string) => {
-    const d = new Date(dateStr + 'T00:00:00');
+    const d = new Date(dateStr.includes('T') ? dateStr : dateStr + 'T00:00:00');
     if (isNaN(d.getTime())) return dateStr;
-    return `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}/${d.getFullYear()}`;
+    const date = `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}/${d.getFullYear()}`;
+    const hours = d.getHours();
+    const minutes = String(d.getMinutes()).padStart(2, '0');
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    const h12 = hours % 12 || 12;
+    return `${date} ${h12}:${minutes} ${ampm}`;
   };
 
   const handleDateChange = (_event: DateTimePickerEvent, selectedDate?: Date) => {
     if (Platform.OS === 'android') setShowDatePicker(false);
     if (selectedDate) {
-      const yyyy = selectedDate.getFullYear();
-      const mm = String(selectedDate.getMonth() + 1).padStart(2, '0');
-      const dd = String(selectedDate.getDate()).padStart(2, '0');
-      setModalDueDate(`${yyyy}-${mm}-${dd}`);
+      setTempDate(selectedDate);
+      if (Platform.OS === 'android') {
+        setShowTimePicker(true);
+      }
+    }
+  };
+
+  const handleTimeChange = (_event: DateTimePickerEvent, selectedTime?: Date) => {
+    if (Platform.OS === 'android') setShowTimePicker(false);
+    if (selectedTime) {
+      const combined = new Date(tempDate);
+      combined.setHours(selectedTime.getHours(), selectedTime.getMinutes(), 0, 0);
+      const yyyy = combined.getFullYear();
+      const mm = String(combined.getMonth() + 1).padStart(2, '0');
+      const dd = String(combined.getDate()).padStart(2, '0');
+      const hh = String(combined.getHours()).padStart(2, '0');
+      const min = String(combined.getMinutes()).padStart(2, '0');
+      setModalDueDate(`${yyyy}-${mm}-${dd}T${hh}:${min}`);
     }
   };
 
   const isOverdue = (dueDate?: string | null) => {
     if (!dueDate) return false;
-    return new Date(dueDate) < new Date();
+    const d = new Date(dueDate.includes('T') ? dueDate : dueDate + 'T23:59:59');
+    return d < new Date();
   };
 
   const filteredTasks = getFilteredAndSortedTasks();
@@ -750,15 +772,22 @@ export default function HomeScreen() {
               />
             </ThemedView>
 
-            {/* Due Date */}
-            <ThemedText style={styles.label}>Due Date</ThemedText>
+            {/* Due Date & Time */}
+            <ThemedText style={styles.label}>Due Date & Time</ThemedText>
             <TouchableOpacity
               style={[styles.inputContainer, { borderColor }]}
-              onPress={() => setShowDatePicker(true)}
+              onPress={() => {
+                if (modalDueDate) {
+                  setTempDate(new Date(modalDueDate.includes('T') ? modalDueDate : modalDueDate + 'T00:00:00'));
+                } else {
+                  setTempDate(new Date());
+                }
+                setShowDatePicker(true);
+              }}
             >
               <Ionicons name="calendar-outline" size={20} color="#888" />
               <ThemedText style={[styles.input, { color: modalDueDate ? textColor : placeholderColor }]}>
-                {modalDueDate ? formatDateDisplay(modalDueDate) : 'MM/DD/YYYY'}
+                {modalDueDate ? formatDateDisplay(modalDueDate) : 'MM/DD/YYYY HH:MM AM'}
               </ThemedText>
               {modalDueDate ? (
                 <TouchableOpacity onPress={() => setModalDueDate('')} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
@@ -769,16 +798,48 @@ export default function HomeScreen() {
             {showDatePicker && (
               <View>
                 <DateTimePicker
-                  value={modalDueDate ? new Date(modalDueDate + 'T00:00:00') : new Date()}
+                  value={tempDate}
                   mode="date"
                   display={Platform.OS === 'ios' ? 'inline' : 'default'}
                   onChange={handleDateChange}
                   themeVariant={isDark ? 'dark' : 'light'}
+                  accentColor="#4CAF50"
                 />
                 {Platform.OS === 'ios' && (
                   <TouchableOpacity
                     style={styles.datePickerDoneButton}
-                    onPress={() => setShowDatePicker(false)}
+                    onPress={() => {
+                      setShowDatePicker(false);
+                      setShowTimePicker(true);
+                    }}
+                  >
+                    <ThemedText style={{ color: '#4CAF50', fontWeight: '700', fontSize: 16 }}>Next: Pick Time</ThemedText>
+                  </TouchableOpacity>
+                )}
+              </View>
+            )}
+            {showTimePicker && (
+              <View>
+                <DateTimePicker
+                  value={tempDate}
+                  mode="time"
+                  display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                  onChange={handleTimeChange}
+                  themeVariant={isDark ? 'dark' : 'light'}
+                  accentColor="#4CAF50"
+                />
+                {Platform.OS === 'ios' && (
+                  <TouchableOpacity
+                    style={styles.datePickerDoneButton}
+                    onPress={() => {
+                      const yyyy = tempDate.getFullYear();
+                      const mm = String(tempDate.getMonth() + 1).padStart(2, '0');
+                      const dd = String(tempDate.getDate()).padStart(2, '0');
+                      const hh = String(tempDate.getHours()).padStart(2, '0');
+                      const min = String(tempDate.getMinutes()).padStart(2, '0');
+                      setModalDueDate(`${yyyy}-${mm}-${dd}T${hh}:${min}`);
+                      setShowTimePicker(false);
+                    }}
                   >
                     <ThemedText style={{ color: '#4CAF50', fontWeight: '700', fontSize: 16 }}>Done</ThemedText>
                   </TouchableOpacity>
@@ -981,6 +1042,69 @@ export default function HomeScreen() {
               activeOpacity={0.8}
             >
               <ThemedText style={styles.tooFarButtonText}>Awesome</ThemedText>
+            </TouchableOpacity>
+          </ThemedView>
+        </View>
+      </Modal>
+
+      {/* Task Saved Popup */}
+      <Modal visible={showTaskSaved !== null} transparent animationType="fade">
+        <View style={styles.tooFarOverlay}>
+          <ThemedView style={[styles.tooFarCard, { borderColor }]}>
+            <View style={styles.tooFarIconRow}>
+              <View style={styles.successIconCircle}>
+                <Ionicons
+                  name={showTaskSaved === 'created' ? 'add-circle' : 'create'}
+                  size={36}
+                  color="#4CAF50"
+                />
+              </View>
+            </View>
+            <ThemedText style={styles.tooFarTitle}>
+              {showTaskSaved === 'created' ? 'Task created!' : 'Task updated!'}
+            </ThemedText>
+            <ThemedText style={styles.tooFarBody}>
+              {showTaskSaved === 'created'
+                ? 'Your new task has been added successfully.'
+                : 'Your changes have been saved successfully.'}
+            </ThemedText>
+            <TouchableOpacity
+              style={styles.successButton}
+              onPress={() => setShowTaskSaved(null)}
+              activeOpacity={0.8}
+            >
+              <ThemedText style={styles.tooFarButtonText}>Got it</ThemedText>
+            </TouchableOpacity>
+          </ThemedView>
+        </View>
+      </Modal>
+
+      {/* Delete Confirmation Popup */}
+      <Modal visible={deleteConfirmTaskId !== null} transparent animationType="fade">
+        <View style={styles.tooFarOverlay}>
+          <ThemedView style={[styles.tooFarCard, { borderColor }]}>
+            <View style={styles.tooFarIconRow}>
+              <View style={styles.tooFarIconCircle}>
+                <Ionicons name="trash-outline" size={32} color="#ff6b6b" />
+              </View>
+            </View>
+            <ThemedText style={styles.tooFarTitle}>Delete task?</ThemedText>
+            <ThemedText style={styles.tooFarBody}>
+              This action cannot be undone. Are you sure you want to delete this task?
+            </ThemedText>
+            <TouchableOpacity
+              style={styles.tooFarButton}
+              onPress={confirmDeleteTask}
+              activeOpacity={0.8}
+            >
+              <ThemedText style={styles.tooFarButtonText}>Delete</ThemedText>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.cancelButton}
+              onPress={() => setDeleteConfirmTaskId(null)}
+              activeOpacity={0.8}
+            >
+              <ThemedText style={styles.cancelButtonText}>Cancel</ThemedText>
             </TouchableOpacity>
           </ThemedView>
         </View>
@@ -1423,5 +1547,17 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '700',
     fontSize: 16,
+  },
+  cancelButton: {
+    width: '100%',
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  cancelButtonText: {
+    fontWeight: '700',
+    fontSize: 16,
+    opacity: 0.6,
   },
 });

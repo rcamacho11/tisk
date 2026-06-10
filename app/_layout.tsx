@@ -10,6 +10,8 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import { AuthProvider } from '@/src/contexts/AuthContext';
 import { AppThemeProvider } from '@/src/contexts/ThemeContext';
 import { useAuth } from '@/src/hooks/useAuth';
+import { useNotifications } from '@/src/hooks/useNotifications';
+import '@/src/services/locationTaskService';
 
 export const unstable_settings = {
   anchor: 'login',
@@ -35,6 +37,12 @@ function AuthGuard() {
   return null;
 }
 
+function NotificationManager() {
+  const { isAuthenticated } = useAuth();
+  useNotifications(isAuthenticated);
+  return null;
+}
+
 function RootLayoutInner() {
   const colorScheme = useColorScheme();
   const bgColor = Colors[colorScheme ?? 'light'].background;
@@ -46,6 +54,7 @@ function RootLayoutInner() {
     }>
       <AuthProvider>
         <AuthGuard />
+        <NotificationManager />
         <SafeAreaView style={{ flex: 1, backgroundColor: bgColor }} edges={['top']}>
           <Stack>
             <Stack.Screen name="login" options={{ headerShown: false }} />
