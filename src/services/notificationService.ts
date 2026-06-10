@@ -51,8 +51,8 @@ class NotificationService {
     for (const task of tasks) {
       if (task.completed || !task.dueDate) continue
 
-      const dueDate = new Date(task.dueDate + 'T09:00:00')
-      const overdueTrigger = new Date(task.dueDate + 'T09:00:00')
+      const dueDate = new Date(task.dueDate.includes('T') ? task.dueDate : task.dueDate + 'T09:00:00')
+      const overdueTrigger = new Date(dueDate.getTime())
       overdueTrigger.setDate(overdueTrigger.getDate() + 2)
 
       // Due date reminder — schedule at 9 AM on the due date

@@ -366,7 +366,8 @@ Deno.serve(async (req: Request) => {
         }
       }
 
-      const { user_latitude: _ul, user_longitude: _uln, ...updates } = body
+      const { user_latitude: _ul, user_longitude: _uln, dueDate, ...rest } = body
+      const updates = { ...rest, ...(dueDate !== undefined ? { due_date: dueDate } : {}) }
 
       const { data, error } = await supabase
         .from("tasks")
