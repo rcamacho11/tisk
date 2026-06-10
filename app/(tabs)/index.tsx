@@ -211,7 +211,7 @@ export default function HomeScreen() {
   const [modalCategoryId, setModalCategoryId] = useState<string | null>(null);
   const [modalDueDate, setModalDueDate] = useState('');
   const [newCategoryName, setNewCategoryName] = useState('');
-  const [showMapPicker, setShowMapPicker] = useState(false);
+  const [showMapView, setShowMapView] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [tempDate, setTempDate] = useState<Date>(new Date());
@@ -690,47 +690,6 @@ export default function HomeScreen() {
               {/* Expanded Task Details */}
               {expandedTaskId === task.id && (
                 <ThemedView style={[styles.expandedContent, { borderColor: '#4CAF50' }]}>
-
-                  {/* Task info */}
-                  {task.description ? (
-                    <ThemedText style={styles.expandedDescription}>{task.description}</ThemedText>
-                  ) : null}
-                  <ThemedView style={styles.expandedMeta}>
-                    {task.dueDate && (
-                      <ThemedView style={[styles.metaTag, { backgroundColor: isOverdue(task.dueDate) && !task.completed ? 'rgba(255,107,107,0.12)' : chipBg }]}>
-                        <Ionicons name="calendar-outline" size={12} color={isOverdue(task.dueDate) && !task.completed ? '#ff6b6b' : '#888'} />
-                        <ThemedText style={[styles.metaTagText, isOverdue(task.dueDate) && !task.completed && { color: '#ff6b6b' }]}>
-                          {formatDateDisplay(task.dueDate)}
-                        </ThemedText>
-                      </ThemedView>
-                    )}
-                    <ThemedView style={[styles.metaTag, { backgroundColor: getPriorityColor(task.priority) + '18', borderWidth: 1, borderColor: getPriorityColor(task.priority) }]}>
-                      <Ionicons name="flag-outline" size={12} color={getPriorityColor(task.priority)} />
-                      <ThemedText style={[styles.metaTagText, { color: getPriorityColor(task.priority), fontWeight: '700' }]}>
-                        {(task.priority as string)?.charAt(0).toUpperCase() + ((task.priority as string)?.slice(1) || '')}
-                      </ThemedText>
-                    </ThemedView>
-                    {(task as any).category_id && (
-                      <ThemedView style={[styles.metaTag, { backgroundColor: isDark ? '#1a2a3a' : '#e3f2fd' }]}>
-                        <Ionicons name="folder-outline" size={12} color="#1976d2" />
-                        <ThemedText style={[styles.metaTagText, { color: '#1976d2' }]}>
-                          {categories.find((c) => c.id === (task as any).category_id)?.name ?? ''}
-                        </ThemedText>
-                      </ThemedView>
-                    )}
-                    {task.latitude != null && task.longitude != null && (
-                      <ThemedView style={[styles.metaTag, { backgroundColor: isDark ? '#2a1a2a' : '#fce4ec' }]}>
-                        <Ionicons name="location-outline" size={12} color="#e91e63" />
-                        <ThemedText style={[styles.metaTagText, { color: '#e91e63' }]}>
-                          {task.latitude.toFixed(4)}, {task.longitude.toFixed(4)}
-                        </ThemedText>
-                      </ThemedView>
-                    )}
-                  </ThemedView>
-
-                  <View style={[styles.expandedDivider, { backgroundColor: borderColor }]} />
-
-                  {/* Subtasks */}
                   <ThemedText style={styles.subtaskTitle}>Subtasks</ThemedText>
                   {(subtasksMap[task.id] || []).map((subtask) => (
                     <TouchableOpacity
@@ -761,31 +720,29 @@ export default function HomeScreen() {
                     </TouchableOpacity>
                   </ThemedView>
 
-                  {/* Actions */}
-                  <ThemedView style={styles.expandedActions}>
-                    {task.latitude != null && task.longitude != null && (
-                      <TouchableOpacity
-                        onPress={() => {
-                          setExpandedTaskId(null);
-                          router.navigate({
-                            pathname: '/(tabs)/explore',
-                            params: { taskLat: task.latitude, taskLng: task.longitude, taskTitle: task.title },
-                          });
-                        }}
-                        style={[styles.expandedActionBtn, { backgroundColor: '#007AFF' }]}
-                      >
-                        <Ionicons name="map-outline" size={16} color="#fff" />
-                        <ThemedText style={styles.expandedActionBtnText}>Map</ThemedText>
-                      </TouchableOpacity>
-                    )}
+                  {task.latitude != null && task.longitude != null && (
                     <TouchableOpacity
-                      onPress={() => handleDeleteTask(task.id)}
-                      style={[styles.expandedActionBtn, { backgroundColor: '#ff6b6b' }]}
+                      onPress={() => {
+                        setExpandedTaskId(null);
+                        router.navigate({
+                          pathname: '/(tabs)/explore',
+                          params: { taskLat: task.latitude, taskLng: task.longitude, taskTitle: task.title },
+                        });
+                      }}
+                      style={styles.viewOnMapButton}
                     >
-                      <Ionicons name="trash-outline" size={16} color="#fff" />
-                      <ThemedText style={styles.expandedActionBtnText}>Delete</ThemedText>
+                      <Ionicons name="map-outline" size={18} color="#fff" />
+                      <ThemedText style={styles.viewOnMapButtonText}>View on Map</ThemedText>
                     </TouchableOpacity>
-                  </ThemedView>
+                  )}
+
+                  <TouchableOpacity
+                    onPress={() => handleDeleteTask(task.id)}
+                    style={styles.deleteButton}
+                  >
+                    <Ionicons name="trash-outline" size={18} color="#fff" />
+                    <ThemedText style={styles.deleteButtonText}>Delete Task</ThemedText>
+                  </TouchableOpacity>
                 </ThemedView>
               )}
             </View>
@@ -801,6 +758,39 @@ export default function HomeScreen() {
       {/* Add/Edit Task Modal */}
       <Modal visible={showModal} animationType="slide">
         <ThemedView style={styles.modalContainer}>
+          {showMapView ? (
+            <>
+              <ThemedView style={styles.mapPickerHeader}>
+                <TouchableOpacity onPress={() => setShowMapView(false)}>
+                  <ThemedText style={{ fontSize: 16, color: '#888' }}>Cancel</ThemedText>
+                </TouchableOpacity>
+                <ThemedText style={{ fontSize: 16, fontWeight: '700' }}>Drop a Pin</ThemedText>
+                <TouchableOpacity onPress={() => {
+                  if (pickedLocationRef.current) {
+                    setPickedLocation(pickedLocationRef.current);
+                  }
+                  setShowMapView(false);
+                }}>
+                  <ThemedText style={{ fontSize: 16, color: '#4CAF50', fontWeight: '700' }}>Done</ThemedText>
+                </TouchableOpacity>
+              </ThemedView>
+              <WebView
+                source={{ html: mapPickerHtml, baseUrl: 'https://localhost/' }}
+                style={{ flex: 1 }}
+                originWhitelist={['*']}
+                javaScriptEnabled={true}
+                onMessage={(event) => {
+                  try {
+                    const data = JSON.parse(event.nativeEvent.data);
+                    if (typeof data.lat === 'number' && typeof data.lng === 'number') {
+                      pickedLocationRef.current = { lat: data.lat, lng: data.lng };
+                    }
+                  } catch {}
+                }}
+              />
+            </>
+          ) : (
+            <>
           <ThemedView style={styles.modalHeader}>
             <TouchableOpacity onPress={() => setShowModal(false)}>
               <Ionicons name="close" size={26} color="#888" />
@@ -998,7 +988,7 @@ export default function HomeScreen() {
                   pickedLocation?.lat,
                   pickedLocation?.lng
                 ));
-                setShowMapPicker(true);
+                setShowMapView(true);
               }}
             >
               <Ionicons
@@ -1024,43 +1014,8 @@ export default function HomeScreen() {
 
             <View style={{ height: 40 }} />
           </ScrollView>
-        </ThemedView>
-      </Modal>
-
-      {/* Map Picker Modal */}
-      <Modal visible={showMapPicker} animationType="slide">
-        <ThemedView style={{ flex: 1 }}>
-          <ThemedView style={styles.mapPickerHeader}>
-            <TouchableOpacity onPress={() => {
-              pickedLocationRef.current = null;
-              setShowMapPicker(false);
-            }}>
-              <ThemedText style={{ fontSize: 16, color: '#888' }}>Cancel</ThemedText>
-            </TouchableOpacity>
-            <ThemedText style={{ fontSize: 16, fontWeight: '700' }}>Drop a Pin</ThemedText>
-            <TouchableOpacity onPress={() => {
-              if (pickedLocationRef.current) {
-                setPickedLocation(pickedLocationRef.current);
-              }
-              setShowMapPicker(false);
-            }}>
-              <ThemedText style={{ fontSize: 16, color: '#4CAF50', fontWeight: '700' }}>Done</ThemedText>
-            </TouchableOpacity>
-          </ThemedView>
-          <WebView
-            source={{ html: mapPickerHtml, baseUrl: 'https://localhost/' }}
-            style={{ flex: 1 }}
-            originWhitelist={['*']}
-            javaScriptEnabled={true}
-            onMessage={(event) => {
-              try {
-                const data = JSON.parse(event.nativeEvent.data);
-                if (typeof data.lat === 'number' && typeof data.lng === 'number') {
-                  pickedLocationRef.current = { lat: data.lat, lng: data.lng };
-                }
-              } catch {}
-            }}
-          />
+            </>
+          )}
         </ThemedView>
       </Modal>
 
@@ -1386,38 +1341,32 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 14,
   },
-  expandedDescription: {
-    fontSize: 14,
-    opacity: 0.75,
-    lineHeight: 20,
-    marginBottom: 10,
-  },
-  expandedMeta: {
+  viewOnMapButton: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-    marginBottom: 4,
-  },
-  expandedDivider: {
-    height: 1,
-    opacity: 0.15,
-    marginVertical: 12,
-  },
-  expandedActions: {
-    flexDirection: 'row',
-    gap: 10,
-    marginTop: 4,
-  },
-  expandedActionBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    paddingVertical: 11,
+    backgroundColor: '#007AFF',
+    paddingVertical: 12,
+    paddingHorizontal: 14,
     borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
+    gap: 8,
   },
-  expandedActionBtnText: {
+  viewOnMapButtonText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  deleteButton: {
+    flexDirection: 'row',
+    backgroundColor: '#ff6b6b',
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  deleteButtonText: {
     color: '#fff',
     fontWeight: '700',
     fontSize: 14,
