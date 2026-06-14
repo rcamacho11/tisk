@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -61,6 +62,18 @@ export default function ProfileScreen() {
   });
 
   const [localSettings, setLocalSettings] = useState<Record<string, boolean>>({});
+  const [taskLayout, setTaskLayout] = useState<'list' | 'grid'>('list');
+
+  useEffect(() => {
+    AsyncStorage.getItem('task_view_layout').then((val) => {
+      if (val === 'grid') setTaskLayout('grid');
+    });
+  }, []);
+
+  const handleLayoutChange = (layout: 'list' | 'grid') => {
+    setTaskLayout(layout);
+    AsyncStorage.setItem('task_view_layout', layout);
+  };
 
   const getSettingValue = (key: string) => {
     if (key in localSettings) return localSettings[key];
@@ -388,7 +401,7 @@ export default function ProfileScreen() {
             />
           </View>
 
-          <View style={styles.settingRow}>
+          <View style={[styles.settingRow, { borderBottomColor: separatorColor }]}>
             <View style={{ flex: 1 }}>
               <ThemedText style={styles.settingLabel}>Share Location</ThemedText>
               <ThemedText style={styles.settingDescription}>
@@ -400,6 +413,43 @@ export default function ProfileScreen() {
               onValueChange={(v) => handleToggleSetting('share_location', v)}
               trackColor={{ false: '#ccc', true: '#4CAF50' }} thumbColor="#fff"
             />
+          </View>
+
+          <View style={[styles.settingRow, { borderBottomWidth: 0 }]}>
+            <View style={{ flex: 1 }}>
+              <ThemedText style={styles.settingLabel}>Task Layout</ThemedText>
+              <ThemedText style={styles.settingDescription}>
+                Choose list or grid view for your tasks
+              </ThemedText>
+            </View>
+            <View style={styles.layoutToggle}>
+              <TouchableOpacity
+                style={[
+                  styles.layoutOption,
+                  taskLayout === 'list' && styles.layoutOptionActive,
+                ]}
+                onPress={() => handleLayoutChange('list')}
+              >
+                <Ionicons
+                  name="list"
+                  size={18}
+                  color={taskLayout === 'list' ? '#fff' : '#888'}
+                />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.layoutOption,
+                  taskLayout === 'grid' && styles.layoutOptionActive,
+                ]}
+                onPress={() => handleLayoutChange('grid')}
+              >
+                <Ionicons
+                  name="grid"
+                  size={18}
+                  color={taskLayout === 'grid' ? '#fff' : '#888'}
+                />
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
 
@@ -670,6 +720,20 @@ const styles = StyleSheet.create({
     fontSize: 12,
     opacity: 0.5,
     marginTop: 4,
+  },
+  layoutToggle: {
+    flexDirection: 'row',
+    borderRadius: 8,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#333',
+  },
+  layoutOption: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  layoutOptionActive: {
+    backgroundColor: '#4CAF50',
   },
   logoutButton: {
     flexDirection: 'row',
