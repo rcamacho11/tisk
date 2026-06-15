@@ -1,6 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
-import * as TaskManager from 'expo-task-manager';
 import { useFocusEffect } from '@react-navigation/native';
 import { useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -22,25 +21,6 @@ import { locationService } from '@/src/services/locationService';
 import { taskService } from '@/src/services/taskService';
 import { FriendLocation, FriendTask, Task } from '@/src/types/api';
 import { supabase } from '@/utils/supabase';
-
-const BACKGROUND_LOCATION_TASK = 'background-location-task';
-
-TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
-  if (error) return;
-  if (data) {
-    const { locations } = data as { locations: Location.LocationObject[] };
-    const loc = locations[0];
-    if (loc) {
-      await locationService.sendLocation({
-        latitude: loc.coords.latitude,
-        longitude: loc.coords.longitude,
-        address: '',
-        accuracy: loc.coords.accuracy ?? 0,
-        timestamp: new Date(loc.timestamp).toISOString(),
-      });
-    }
-  }
-});
 
 function formatDateTime(dateString: string): string {
   const d = new Date(dateString);
@@ -243,11 +223,12 @@ export default function MapScreen() {
   const [selectedFriendAddress, setSelectedFriendAddress] = useState<string | null>(null);
   const [showTasksList, setShowTasksList] = useState(false);
   const lastSendRef = useRef<number>(0);
-  const lastCoordsRef = useRef<{ lat: number; lng: number } | null>(null);
+  const lastSentCoordsRef = useRef<{ lat: number; lng: number } | null>(null);
 
-  const MOVING_INTERVAL = 45 * 1000;
-  const STATIONARY_INTERVAL = 5 * 60 * 1000;
-  const MOVING_SPEED_THRESHOLD = 0.5; // m/s — above this counts as moving
+  const MOVING_INTERVAL = 60_000;
+  const STATIONARY_INTERVAL = 10 * 60_000;
+  const MOVING_SPEED_THRESHOLD = 0.5;
+  const MIN_SEND_DISTANCE = 15;
 
   const fetchTasks = async () => {
     const { data } = await taskService.getTasks();
@@ -341,6 +322,11 @@ export default function MapScreen() {
       setError(null);
       setLoading(false);
 
+      lastSendRef.current = Date.now();
+      lastSentCoordsRef.current = {
+        lat: currentLocation.coords.latitude,
+        lng: currentLocation.coords.longitude,
+      };
       await locationService.sendLocation({
         latitude: currentLocation.coords.latitude,
         longitude: currentLocation.coords.longitude,
@@ -361,30 +347,11 @@ export default function MapScreen() {
         }
       } catch {}
 
-      const { status: bgStatus } = await Location.requestBackgroundPermissionsAsync();
-      if (bgStatus === 'granted') {
-        const isRunning = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK).catch(() => false);
-        if (!isRunning) {
-          await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
-            accuracy: Location.Accuracy.Low,
-            timeInterval: 15 * 60 * 1000,
-            distanceInterval: 100,
-            deferredUpdatesInterval: 15 * 60 * 1000,
-            showsBackgroundLocationIndicator: true,
-            foregroundService: {
-              notificationTitle: 'Tisk',
-              notificationBody: 'Sharing your location with friends',
-              notificationColor: '#4CAF50',
-            },
-          });
-        }
-      }
-
       const subscription = await Location.watchPositionAsync(
         {
-          accuracy: Location.Accuracy.High,
-          timeInterval: 5000,
-          distanceInterval: 5,
+          accuracy: Location.Accuracy.Balanced,
+          timeInterval: 10_000,
+          distanceInterval: 10,
         },
         async (newLocation) => {
           setLocation(newLocation);
@@ -399,20 +366,32 @@ export default function MapScreen() {
           const interval = isMoving ? MOVING_INTERVAL : STATIONARY_INTERVAL;
           const now = Date.now();
 
-          if (now - lastSendRef.current >= interval) {
-            lastSendRef.current = now;
-            lastCoordsRef.current = {
-              lat: newLocation.coords.latitude,
-              lng: newLocation.coords.longitude,
-            };
-            await locationService.sendLocation({
-              latitude: newLocation.coords.latitude,
-              longitude: newLocation.coords.longitude,
-              address: '',
-              accuracy: newLocation.coords.accuracy ?? 0,
-              timestamp: new Date(newLocation.timestamp).toISOString(),
-            });
+          if (now - lastSendRef.current < interval) return;
+
+          if (lastSentCoordsRef.current && !isMoving) {
+            const R = 6371000;
+            const toRad = (d: number) => d * Math.PI / 180;
+            const dLat = toRad(newLocation.coords.latitude - lastSentCoordsRef.current.lat);
+            const dLon = toRad(newLocation.coords.longitude - lastSentCoordsRef.current.lng);
+            const a = Math.sin(dLat / 2) ** 2 +
+              Math.cos(toRad(lastSentCoordsRef.current.lat)) * Math.cos(toRad(newLocation.coords.latitude)) *
+              Math.sin(dLon / 2) ** 2;
+            const dist = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            if (dist < MIN_SEND_DISTANCE) return;
           }
+
+          lastSendRef.current = now;
+          lastSentCoordsRef.current = {
+            lat: newLocation.coords.latitude,
+            lng: newLocation.coords.longitude,
+          };
+          await locationService.sendLocation({
+            latitude: newLocation.coords.latitude,
+            longitude: newLocation.coords.longitude,
+            address: '',
+            accuracy: newLocation.coords.accuracy ?? 0,
+            timestamp: new Date(newLocation.timestamp).toISOString(),
+          });
         }
       );
 

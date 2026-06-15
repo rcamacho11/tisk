@@ -11,7 +11,7 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "Tisk uses your location in the background to share it with your friends every 5 minutes.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Tisk uses your location in the background to share it with friends and notify you when you're near a task.",
         "NSLocationWhenInUseUsageDescription": "Tisk uses your location to show you on the map and share it with friends.",
         "UIBackgroundModes": [
           "location"
@@ -50,7 +50,7 @@
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "Tisk uses your location in the background to share it with your friends every 5 minutes.",
+          "locationAlwaysAndWhenInUsePermission": "Tisk uses your location in the background to share it with friends and notify you when you're near a task.",
           "locationWhenInUsePermission": "Tisk uses your location to show you on the map and share it with friends.",
           "isAndroidBackgroundLocationEnabled": true,
           "isAndroidForegroundServiceEnabled": true
