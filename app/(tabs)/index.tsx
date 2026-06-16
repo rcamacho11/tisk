@@ -10,6 +10,7 @@ import {
   Dimensions,
   Modal,
   Platform,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   TextInput,
@@ -26,6 +27,7 @@ import { useApi, useMutation } from '@/src/hooks/useApi';
 import { categoryService } from '@/src/services/categoryService';
 import { subtaskService } from '@/src/services/subtaskService';
 import { taskService } from '@/src/services/taskService';
+import { useAuth } from '@/src/hooks/useAuth';
 import { Category, CreateTaskInput, Subtask, Task, UpdateTaskInput } from '@/src/types/api';
 
 type Priority = 'low' | 'medium' | 'high';
@@ -143,8 +145,11 @@ export default function HomeScreen() {
   const placeholderColor = isDark ? '#666' : '#aaa';
   const chipBg = isDark ? '#2a2a2a' : '#f0f0f0';
 
-  const { data: tasks, loading, refetch: refetchTasks } = useApi(() =>
-    taskService.getTasks()
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
+
+  const { data: tasks, loading, error: tasksError, refetch: refetchTasks } = useApi(
+    () => isAuthenticated ? taskService.getTasks() : Promise.resolve({ data: null, error: null }),
+    [isAuthenticated]
   );
   const { data: categoriesData, refetch: refetchCategories } = useApi(() =>
     categoryService.getCategories()
@@ -173,6 +178,7 @@ export default function HomeScreen() {
     (id: string) => taskService.uncompleteTask(id)
   );
 
+  const [refreshing, setRefreshing] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [popupTaskId, setPopupTaskId] = useState<string | null>(null);
@@ -192,6 +198,12 @@ export default function HomeScreen() {
       });
     }, [])
   );
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await refetchTasks();
+    setRefreshing(false);
+  }, [refetchTasks]);
 
   useEffect(() => {
     if (!popupTaskId) return;
@@ -490,11 +502,31 @@ export default function HomeScreen() {
   const totalCount = taskList.length;
   const progressPercent = totalCount > 0 ? (completedCount / totalCount) * 100 : 0;
 
-  if (loading) {
+  if ((loading && !refreshing) || authLoading) {
     return (
       <ThemedView style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
         <ActivityIndicator size="large" color="#4CAF50" />
         <ThemedText style={{ marginTop: 12, opacity: 0.6 }}>Loading tasks...</ThemedText>
+      </ThemedView>
+    );
+  }
+
+  if (tasksError && !tasks) {
+    return (
+      <ThemedView style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+        <Ionicons name="cloud-offline-outline" size={64} color={isDark ? '#444' : '#ccc'} />
+        <ThemedText style={{ marginTop: 16, fontSize: 18, fontWeight: '600', opacity: 0.5 }}>
+          Couldn't load tasks
+        </ThemedText>
+        <ThemedText style={{ marginTop: 6, fontSize: 14, opacity: 0.4, textAlign: 'center' }}>
+          {tasksError.message}
+        </ThemedText>
+        <TouchableOpacity
+          style={{ marginTop: 20, backgroundColor: '#4CAF50', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 10 }}
+          onPress={refetchTasks}
+        >
+          <ThemedText style={{ color: '#fff', fontWeight: '700' }}>Retry</ThemedText>
+        </TouchableOpacity>
       </ThemedView>
     );
   }
@@ -574,7 +606,12 @@ export default function HomeScreen() {
       </ThemedView>
 
       {/* Tasks List */}
-      <ScrollView style={styles.taskList} showsVerticalScrollIndicator={false} contentContainerStyle={[{ paddingBottom: 80 }, viewLayout === 'grid' && styles.gridContainer]}>
+      <ScrollView
+        style={styles.taskList}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[{ paddingBottom: 80 }, viewLayout === 'grid' && styles.gridContainer]}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#4CAF50']} tintColor="#4CAF50" />}
+      >
         {filteredTasks.length === 0 ? (
           <ThemedView style={styles.emptyState}>
             <Ionicons
