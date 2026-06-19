@@ -1,10 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useFocusEffect } from '@react-navigation/native';
 import * as Location from 'expo-location';
 import { router } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Dimensions,
   Modal,
   Platform,
   ScrollView,
@@ -23,7 +26,7 @@ import { useApi, useMutation } from '@/src/hooks/useApi';
 import { categoryService } from '@/src/services/categoryService';
 import { subtaskService } from '@/src/services/subtaskService';
 import { taskService } from '@/src/services/taskService';
-import { Category, CreateTaskInput, Subtask, Task, UpdateTaskInput } from '@/src/types/api';
+import { Category, CreateTaskInput, FriendTask, Subtask, Task, UpdateTaskInput } from '@/src/types/api';
 
 type Priority = 'low' | 'medium' | 'high';
 
@@ -143,6 +146,9 @@ export default function HomeScreen() {
   const { data: tasks, loading, refetch: refetchTasks } = useApi(() =>
     taskService.getTasks()
   );
+  const { data: friendTasksData, loading: friendTasksLoading, refetch: refetchFriendTasks } = useApi(() =>
+    taskService.getFriendsTasks()
+  );
   const { data: categoriesData, refetch: refetchCategories } = useApi(() =>
     categoryService.getCategories()
   );
@@ -172,26 +178,50 @@ export default function HomeScreen() {
 
   const [showModal, setShowModal] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
-  const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
+  const [popupTaskId, setPopupTaskId] = useState<string | null>(null);
   const [subtasksMap, setSubtasksMap] = useState<Record<string, Subtask[]>>({});
   const [newSubtaskInput, setNewSubtaskInput] = useState('');
+  const [showSubtaskInput, setShowSubtaskInput] = useState(false);
+  const [addingSubtask, setAddingSubtask] = useState(false);
+  const subtaskInputRef = useRef<TextInput>(null);
   const [sortBy, setSortBy] = useState<'date' | 'priority' | 'category'>('date');
   const [filterBy, setFilterBy] = useState<'all' | 'active' | 'completed'>('all');
+  const [viewLayout, setViewLayout] = useState<'list' | 'grid'>('list');
+  const [taskView, setTaskView] = useState<'mine' | 'friends'>('mine');
+
+  useFocusEffect(
+    useCallback(() => {
+      AsyncStorage.getItem('task_view_layout').then((val) => {
+        setViewLayout(val === 'grid' ? 'grid' : 'list');
+      });
+      refetchFriendTasks();
+    }, [])
+  );
 
   useEffect(() => {
-    if (!expandedTaskId) return;
-    subtaskService.getSubtasks(expandedTaskId).then(({ data }) => {
+    if (!popupTaskId) return;
+    subtaskService.getSubtasks(popupTaskId).then(({ data }) => {
       if (data && Array.isArray(data)) {
-        setSubtasksMap((prev) => ({ ...prev, [expandedTaskId]: data }));
+        setSubtasksMap((prev) => ({ ...prev, [popupTaskId]: data }));
       }
     });
-  }, [expandedTaskId]);
+  }, [popupTaskId]);
 
   const handleAddSubtask = async (taskId: string) => {
-    if (!newSubtaskInput.trim()) return;
+    if (!newSubtaskInput.trim() || addingSubtask) return;
+    setAddingSubtask(true);
     const { error } = await subtaskService.createSubtask(taskId, { title: newSubtaskInput.trim() });
+    setAddingSubtask(false);
     if (error) { Alert.alert('Error', error.message); return; }
     setNewSubtaskInput('');
+    const { data } = await subtaskService.getSubtasks(taskId);
+    if (data && Array.isArray(data)) setSubtasksMap((prev) => ({ ...prev, [taskId]: data }));
+    setTimeout(() => subtaskInputRef.current?.focus(), 100);
+  };
+
+  const handleDeleteSubtask = async (taskId: string, subtaskId: string) => {
+    const { error } = await subtaskService.deleteSubtask(subtaskId);
+    if (error) { Alert.alert('Error', error.message); return; }
     const { data } = await subtaskService.getSubtasks(taskId);
     if (data && Array.isArray(data)) setSubtasksMap((prev) => ({ ...prev, [taskId]: data }));
   };
@@ -227,17 +257,20 @@ export default function HomeScreen() {
 
   useEffect(() => {
     (async () => {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') return;
-      let loc: Location.LocationObject | null = null;
       try {
-        loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-      } catch {
-        loc = await Location.getLastKnownPositionAsync();
-      }
-      if (loc) {
-        setUserLocation({ lat: loc.coords.latitude, lng: loc.coords.longitude });
-      }
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status === 'granted') {
+          let loc: Location.LocationObject | null = null;
+          try {
+            loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+          } catch {
+            loc = await Location.getLastKnownPositionAsync();
+          }
+          if (loc) {
+            setUserLocation({ lat: loc.coords.latitude, lng: loc.coords.longitude });
+          }
+        }
+      } catch {}
     })();
   }, []);
 
@@ -340,7 +373,6 @@ export default function HomeScreen() {
       setCompletingTaskId(id);
       try {
         const { status } = await Location.requestForegroundPermissionsAsync();
-        console.log('[location] permission status:', status);
         if (status !== 'granted') {
           Alert.alert('Error', 'Location permission is required to complete tasks');
           setCompletingTaskId(null);
@@ -348,20 +380,11 @@ export default function HomeScreen() {
         }
         let loc: Location.LocationObject | null = null;
         try {
-          console.log('[location] calling getCurrentPositionAsync...');
-          loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-          console.log('[location] getCurrentPositionAsync success:', loc.coords);
-        } catch (e) {
-          console.log('[location] getCurrentPositionAsync failed:', e);
-          try {
-            loc = await Location.getLastKnownPositionAsync();
-            console.log('[location] getLastKnownPositionAsync result:', loc?.coords ?? 'null');
-          } catch (e2) {
-            console.log('[location] getLastKnownPositionAsync also failed:', e2);
-          }
+          loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+        } catch {
+          loc = await Location.getLastKnownPositionAsync();
         }
         if (!loc) {
-          console.log('[location] no location available, aborting');
           Alert.alert('Error', 'Failed to get your location. Please try again.');
           setCompletingTaskId(null);
           return;
@@ -370,7 +393,6 @@ export default function HomeScreen() {
           loc.coords.latitude, loc.coords.longitude,
           task.latitude!, task.longitude!
         );
-        console.log('[location] distance to task:', distance);
         if (distance > 50) {
           setTooFarDistance(Math.round(distance));
           setCompletingTaskId(null);
@@ -378,9 +400,8 @@ export default function HomeScreen() {
         }
         const { error } = await completeTask({ id, lat: loc.coords.latitude, lng: loc.coords.longitude });
         if (error) { Alert.alert('Error', error.message); setCompletingTaskId(null); return; }
-      } catch (e) {
-        console.log('[location] outer catch error:', e);
-        Alert.alert('Error', 'Failed to get your location. Please try again.');
+      } catch {
+        Alert.alert('Error', 'Failed to get your location');
         setCompletingTaskId(null);
         return;
       }
@@ -487,6 +508,7 @@ export default function HomeScreen() {
 
   const filteredTasks = getFilteredAndSortedTasks();
   const taskList = Array.isArray(tasks) ? tasks : [];
+  const friendTaskList: FriendTask[] = Array.isArray(friendTasksData) ? friendTasksData : [];
   const completedCount = taskList.filter((t) => t.completed).length;
   const totalCount = taskList.length;
   const progressPercent = totalCount > 0 ? (completedCount / totalCount) * 100 : 0;
@@ -542,7 +564,37 @@ export default function HomeScreen() {
         </ThemedView>
       )}
 
+      {/* My Tasks / Friends Toggle */}
+      <ThemedView style={[styles.taskViewToggle, { borderColor }]}>
+        <TouchableOpacity
+          style={[styles.taskViewOption, taskView === 'mine' && styles.taskViewOptionActive]}
+          onPress={() => setTaskView('mine')}
+        >
+          <Ionicons name="person" size={14} color={taskView === 'mine' ? '#fff' : '#888'} />
+          <ThemedText style={[styles.taskViewOptionText, taskView === 'mine' && styles.taskViewOptionTextActive]}>
+            My Tasks
+          </ThemedText>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.taskViewOption, taskView === 'friends' && styles.taskViewOptionActive]}
+          onPress={() => setTaskView('friends')}
+        >
+          <Ionicons name="people" size={14} color={taskView === 'friends' ? '#fff' : '#888'} />
+          <ThemedText style={[styles.taskViewOptionText, taskView === 'friends' && styles.taskViewOptionTextActive]}>
+            Friends
+          </ThemedText>
+          {friendTaskList.filter(t => !t.completed).length > 0 && (
+            <View style={styles.friendTaskBadge}>
+              <ThemedText style={styles.friendTaskBadgeText}>
+                {friendTaskList.filter(t => !t.completed).length}
+              </ThemedText>
+            </View>
+          )}
+        </TouchableOpacity>
+      </ThemedView>
+
       {/* Sort Controls */}
+      {taskView === 'mine' && (
       <ThemedView style={styles.controlsContainer}>
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
@@ -573,27 +625,25 @@ export default function HomeScreen() {
           ))}
         </ScrollView>
       </ThemedView>
+      )}
 
       {/* Tasks List */}
-      <ScrollView style={styles.taskList} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 80 }}>
-        {filteredTasks.length === 0 ? (
-          <ThemedView style={styles.emptyState}>
-            <Ionicons
-              name="checkmark-done-circle-outline"
-              size={64}
-              color={isDark ? '#444' : '#ccc'}
-            />
-            <ThemedText style={styles.emptyText}>
-              {filterBy === 'completed' ? 'No completed tasks yet' : 'No tasks yet'}
-            </ThemedText>
-            <ThemedText style={styles.emptySubtext}>
-              Tap + to create your first task
-            </ThemedText>
-          </ThemedView>
-        ) : (
-          filteredTasks.map((task) => (
-            <View key={task.id}>
+      <ScrollView style={styles.taskList} showsVerticalScrollIndicator={false} contentContainerStyle={[{ paddingBottom: 80 }, taskView === 'mine' && viewLayout === 'grid' && styles.gridContainer]}>
+        {taskView === 'friends' ? (
+          friendTasksLoading ? (
+            <ThemedView style={styles.emptyState}>
+              <ActivityIndicator size="large" color="#4CAF50" />
+            </ThemedView>
+          ) : friendTaskList.length === 0 ? (
+            <ThemedView style={styles.emptyState}>
+              <Ionicons name="people-outline" size={64} color={isDark ? '#444' : '#ccc'} />
+              <ThemedText style={styles.emptyText}>No friends' tasks yet</ThemedText>
+              <ThemedText style={styles.emptySubtext}>Add friends to see their tasks here</ThemedText>
+            </ThemedView>
+          ) : (
+            friendTaskList.map((task) => (
               <TouchableOpacity
+                key={task.id}
                 style={[
                   styles.taskCard,
                   { borderColor },
@@ -601,32 +651,23 @@ export default function HomeScreen() {
                   isOverdue(task.dueDate) && !task.completed && styles.taskCardOverdue,
                 ]}
                 activeOpacity={0.7}
-                onPress={() => setExpandedTaskId(expandedTaskId === task.id ? null : task.id)}
+                onPress={() => { setNewSubtaskInput(''); setShowSubtaskInput(false); setPopupTaskId(task.id); }}
               >
-                {completingTaskId === task.id ? (
-                  <View style={styles.checkbox}>
-                    <ActivityIndicator size="small" color="#4CAF50" />
-                  </View>
-                ) : (
-                  <TouchableOpacity
-                    style={styles.checkbox}
-                    onPress={() => handleToggleTask(task.id, task.completed)}
-                  >
-                    <Ionicons
-                      name={task.completed ? 'checkbox' : 'square-outline'}
-                      size={24}
-                      color={task.completed ? '#4CAF50' : '#888'}
-                    />
-                  </TouchableOpacity>
-                )}
-
+                <View style={[styles.checkbox, { justifyContent: 'center', alignItems: 'center' }]}>
+                  <Ionicons
+                    name={task.completed ? 'checkbox' : 'square-outline'}
+                    size={24}
+                    color={task.completed ? '#4CAF50' : '#888'}
+                  />
+                </View>
                 <ThemedView style={styles.taskMainContent}>
-                  <ThemedText
-                    style={[
-                      styles.taskTitle,
-                      task.completed && styles.completedTaskText,
-                    ]}
-                  >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                    <Ionicons name="person-circle-outline" size={14} color="#888" />
+                    <ThemedText style={{ fontSize: 12, color: '#888', fontWeight: '600' }}>
+                      {task.profile?.username ?? 'Friend'}
+                    </ThemedText>
+                  </View>
+                  <ThemedText style={[styles.taskTitle, task.completed && styles.completedTaskText]}>
                     {task.title}
                   </ThemedText>
                   {task.description ? (
@@ -642,110 +683,186 @@ export default function HomeScreen() {
                           size={12}
                           color={isOverdue(task.dueDate) && !task.completed ? '#ff6b6b' : '#888'}
                         />
-                        <ThemedText
-                          style={[
-                            styles.metaTagText,
-                            isOverdue(task.dueDate) && !task.completed && { color: '#ff6b6b', fontWeight: '700' },
-                          ]}
-                        >
+                        <ThemedText style={[styles.metaTagText, isOverdue(task.dueDate) && !task.completed && { color: '#ff6b6b', fontWeight: '700' }]}>
                           {formatDateDisplay(task.dueDate!)}
                         </ThemedText>
                       </ThemedView>
                     )}
-                    <ThemedView
-                      style={[
-                        styles.priorityTag,
-                        { borderColor: getPriorityColor(task.priority), backgroundColor: getPriorityColor(task.priority) + '18' },
-                      ]}
-                    >
-                      <ThemedText
-                        style={[styles.priorityTagText, { color: getPriorityColor(task.priority) }]}
-                      >
+                    <ThemedView style={[styles.priorityTag, { borderColor: getPriorityColor(task.priority), backgroundColor: getPriorityColor(task.priority) + '18' }]}>
+                      <ThemedText style={[styles.priorityTagText, { color: getPriorityColor(task.priority) }]}>
                         {(task.priority as string)?.charAt(0).toUpperCase() + ((task.priority as string)?.slice(1) || '')}
                       </ThemedText>
                     </ThemedView>
-                    {(task as any).category_id && (
-                      <ThemedView style={[styles.metaTag, { backgroundColor: isDark ? '#1a2a3a' : '#e3f2fd' }]}>
-                        <ThemedText style={[styles.metaTagText, { color: '#1976d2' }]}>
-                          {categories.find((c) => c.id === (task as any).category_id)?.name ?? ''}
-                        </ThemedText>
-                      </ThemedView>
-                    )}
                     {task.latitude != null && task.longitude != null && (
                       <ThemedView style={[styles.metaTag, { backgroundColor: isDark ? '#2a1a2a' : '#fce4ec' }]}>
                         <Ionicons name="location" size={12} color="#e91e63" />
-                        <ThemedText style={[styles.metaTagText, { color: '#e91e63' }]}>
-                          Pin
-                        </ThemedText>
+                        <ThemedText style={[styles.metaTagText, { color: '#e91e63' }]}>Pin</ThemedText>
                       </ThemedView>
                     )}
                   </ThemedView>
                 </ThemedView>
-
-                <TouchableOpacity onPress={() => handleOpenModal(task)} style={styles.editButton}>
-                  <Ionicons name="create-outline" size={20} color="#4CAF50" />
-                </TouchableOpacity>
               </TouchableOpacity>
-
-              {/* Expanded Task Details */}
-              {expandedTaskId === task.id && (
-                <ThemedView style={[styles.expandedContent, { borderColor: '#4CAF50' }]}>
-                  <ThemedText style={styles.subtaskTitle}>Subtasks</ThemedText>
-                  {(subtasksMap[task.id] || []).map((subtask) => (
-                    <TouchableOpacity
-                      key={subtask.id}
-                      style={[styles.subtaskItem, { backgroundColor: chipBg }]}
-                      onPress={() => handleToggleSubtask(task.id, subtask.id, subtask.completed)}
-                    >
-                      <Ionicons
-                        name={subtask.completed ? 'checkbox' : 'square-outline'}
-                        size={18}
-                        color={subtask.completed ? '#4CAF50' : '#888'}
-                      />
-                      <ThemedText style={[styles.subtaskText, subtask.completed && styles.completedTaskText]}>
-                        {subtask.title}
-                      </ThemedText>
-                    </TouchableOpacity>
-                  ))}
-                  <ThemedView style={[styles.addSubtaskRow, { borderColor }]}>
-                    <TextInput
-                      style={[styles.subtaskInput, { color: textColor }]}
-                      placeholder="Add subtask..."
-                      placeholderTextColor={placeholderColor}
-                      value={newSubtaskInput}
-                      onChangeText={setNewSubtaskInput}
-                    />
-                    <TouchableOpacity onPress={() => handleAddSubtask(task.id)}>
-                      <Ionicons name="add-circle" size={28} color="#4CAF50" />
-                    </TouchableOpacity>
-                  </ThemedView>
-
-                  {task.latitude != null && task.longitude != null && (
-                    <TouchableOpacity
-                      onPress={() => {
-                        setExpandedTaskId(null);
-                        router.navigate({
-                          pathname: '/(tabs)/explore',
-                          params: { taskLat: task.latitude, taskLng: task.longitude, taskTitle: task.title },
-                        });
-                      }}
-                      style={styles.viewOnMapButton}
-                    >
-                      <Ionicons name="map-outline" size={18} color="#fff" />
-                      <ThemedText style={styles.viewOnMapButtonText}>View on Map</ThemedText>
-                    </TouchableOpacity>
-                  )}
-
-                  <TouchableOpacity
-                    onPress={() => handleDeleteTask(task.id)}
-                    style={styles.deleteButton}
-                  >
-                    <Ionicons name="trash-outline" size={18} color="#fff" />
-                    <ThemedText style={styles.deleteButtonText}>Delete Task</ThemedText>
-                  </TouchableOpacity>
-                </ThemedView>
+            ))
+          )
+        ) : filteredTasks.length === 0 ? (
+          <ThemedView style={styles.emptyState}>
+            <Ionicons
+              name="checkmark-done-circle-outline"
+              size={64}
+              color={isDark ? '#444' : '#ccc'}
+            />
+            <ThemedText style={styles.emptyText}>
+              {filterBy === 'completed' ? 'No completed tasks yet' : 'No tasks yet'}
+            </ThemedText>
+            <ThemedText style={styles.emptySubtext}>
+              Tap + to create your first task
+            </ThemedText>
+          </ThemedView>
+        ) : viewLayout === 'grid' ? (
+          filteredTasks.map((task) => (
+            <TouchableOpacity
+              key={task.id}
+              style={[
+                styles.gridCard,
+                { borderColor, backgroundColor: isDark ? '#1e2022' : '#fff' },
+                task.completed && styles.taskCardCompleted,
+                isOverdue(task.dueDate) && !task.completed && styles.taskCardOverdue,
+              ]}
+              activeOpacity={0.7}
+              onPress={() => { setNewSubtaskInput(''); setShowSubtaskInput(false); setPopupTaskId(task.id); }}
+            >
+              <View style={styles.gridCardTop}>
+                <TouchableOpacity
+                  onPress={() => handleToggleTask(task.id, task.completed)}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Ionicons
+                    name={task.completed ? 'checkbox' : 'square-outline'}
+                    size={20}
+                    color={task.completed ? '#4CAF50' : '#888'}
+                  />
+                </TouchableOpacity>
+                <View style={[styles.gridPriorityDot, { backgroundColor: getPriorityColor(task.priority) }]} />
+              </View>
+              <ThemedText
+                style={[styles.gridCardTitle, task.completed && styles.completedTaskText]}
+                numberOfLines={2}
+              >
+                {task.title}
+              </ThemedText>
+              {task.dueDate && (
+                <ThemedText
+                  style={[
+                    styles.gridCardDate,
+                    isOverdue(task.dueDate) && !task.completed && { color: '#ff6b6b' },
+                  ]}
+                  numberOfLines={1}
+                >
+                  {formatDateDisplay(task.dueDate!)}
+                </ThemedText>
               )}
-            </View>
+              <View style={styles.gridCardIcons}>
+                {task.latitude != null && (
+                  <Ionicons name="location" size={12} color="#e91e63" />
+                )}
+                {(task as any).category_id && (
+                  <Ionicons name="pricetag" size={12} color="#1976d2" />
+                )}
+              </View>
+            </TouchableOpacity>
+          ))
+        ) : (
+          filteredTasks.map((task) => (
+            <TouchableOpacity
+              key={task.id}
+              style={[
+                styles.taskCard,
+                { borderColor },
+                task.completed && styles.taskCardCompleted,
+                isOverdue(task.dueDate) && !task.completed && styles.taskCardOverdue,
+              ]}
+              activeOpacity={0.7}
+              onPress={() => { setNewSubtaskInput(''); setShowSubtaskInput(false); setPopupTaskId(task.id); }}
+            >
+              {completingTaskId === task.id ? (
+                <View style={styles.checkbox}>
+                  <ActivityIndicator size="small" color="#4CAF50" />
+                </View>
+              ) : (
+                <TouchableOpacity
+                  style={styles.checkbox}
+                  onPress={() => handleToggleTask(task.id, task.completed)}
+                >
+                  <Ionicons
+                    name={task.completed ? 'checkbox' : 'square-outline'}
+                    size={24}
+                    color={task.completed ? '#4CAF50' : '#888'}
+                  />
+                </TouchableOpacity>
+              )}
+
+              <ThemedView style={styles.taskMainContent}>
+                <ThemedText
+                  style={[
+                    styles.taskTitle,
+                    task.completed && styles.completedTaskText,
+                  ]}
+                >
+                  {task.title}
+                </ThemedText>
+                {task.description ? (
+                  <ThemedText style={styles.taskDescription} numberOfLines={2}>
+                    {task.description}
+                  </ThemedText>
+                ) : null}
+                <ThemedView style={styles.taskMetaRow}>
+                  {task.dueDate && (
+                    <ThemedView style={[styles.metaTag, { backgroundColor: chipBg }]}>
+                      <Ionicons
+                        name="calendar-outline"
+                        size={12}
+                        color={isOverdue(task.dueDate) && !task.completed ? '#ff6b6b' : '#888'}
+                      />
+                      <ThemedText
+                        style={[
+                          styles.metaTagText,
+                          isOverdue(task.dueDate) && !task.completed && { color: '#ff6b6b', fontWeight: '700' },
+                        ]}
+                      >
+                        {formatDateDisplay(task.dueDate!)}
+                      </ThemedText>
+                    </ThemedView>
+                  )}
+                  <ThemedView
+                    style={[
+                      styles.priorityTag,
+                      { borderColor: getPriorityColor(task.priority), backgroundColor: getPriorityColor(task.priority) + '18' },
+                    ]}
+                  >
+                    <ThemedText
+                      style={[styles.priorityTagText, { color: getPriorityColor(task.priority) }]}
+                    >
+                      {(task.priority as string)?.charAt(0).toUpperCase() + ((task.priority as string)?.slice(1) || '')}
+                    </ThemedText>
+                  </ThemedView>
+                  {(task as any).category_id && (
+                    <ThemedView style={[styles.metaTag, { backgroundColor: isDark ? '#1a2a3a' : '#e3f2fd' }]}>
+                      <ThemedText style={[styles.metaTagText, { color: '#1976d2' }]}>
+                        {categories.find((c) => c.id === (task as any).category_id)?.name ?? ''}
+                      </ThemedText>
+                    </ThemedView>
+                  )}
+                  {task.latitude != null && task.longitude != null && (
+                    <ThemedView style={[styles.metaTag, { backgroundColor: isDark ? '#2a1a2a' : '#fce4ec' }]}>
+                      <Ionicons name="location" size={12} color="#e91e63" />
+                      <ThemedText style={[styles.metaTagText, { color: '#e91e63' }]}>
+                        Pin
+                      </ThemedText>
+                    </ThemedView>
+                  )}
+                </ThemedView>
+              </ThemedView>
+            </TouchableOpacity>
           ))
         )}
       </ScrollView>
@@ -1017,6 +1134,203 @@ export default function HomeScreen() {
             </>
           )}
         </ThemedView>
+      </Modal>
+
+      {/* Task Action Popup */}
+      <Modal visible={popupTaskId !== null} transparent animationType="fade">
+        <TouchableOpacity style={styles.tooFarOverlay} activeOpacity={1} onPress={() => setPopupTaskId(null)}>
+          {(() => {
+            const task = taskList.find((t) => t.id === popupTaskId) ?? friendTaskList.find((t) => t.id === popupTaskId);
+            const isFriendTask = !taskList.find((t) => t.id === popupTaskId) && !!friendTaskList.find((t) => t.id === popupTaskId);
+            if (!task) return null;
+            const subtasks = subtasksMap[task.id] || [];
+            return (
+              <ThemedView style={[styles.popupCard, { borderColor }]} onStartShouldSetResponder={() => true}>
+                <TouchableOpacity style={styles.popupCloseX} onPress={() => setPopupTaskId(null)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                  <Ionicons name="close" size={22} color="#888" />
+                </TouchableOpacity>
+                <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: Dimensions.get('window').height * 0.7 }}>
+                  {/* Header */}
+                  <View style={styles.popupHeader}>
+                    <View style={{ flex: 1 }}>
+                      {isFriendTask && (task as FriendTask).profile?.username && (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 4 }}>
+                          <Ionicons name="person-circle-outline" size={14} color="#888" />
+                          <ThemedText style={{ fontSize: 12, color: '#888', fontWeight: '600' }}>
+                            {(task as FriendTask).profile.username}
+                          </ThemedText>
+                        </View>
+                      )}
+                      <ThemedText style={styles.popupTitle} numberOfLines={2}>{task.title}</ThemedText>
+                      {task.description ? (
+                        <ThemedText style={styles.popupDescription}>{task.description}</ThemedText>
+                      ) : null}
+                    </View>
+                  </View>
+
+                  {/* Meta info */}
+                  <View style={styles.popupMetaRow}>
+                    {task.dueDate && (
+                      <View style={[styles.metaTag, { backgroundColor: chipBg }]}>
+                        <Ionicons name="calendar-outline" size={12} color={isOverdue(task.dueDate) && !task.completed ? '#ff6b6b' : '#888'} />
+                        <ThemedText style={[styles.metaTagText, isOverdue(task.dueDate) && !task.completed && { color: '#ff6b6b', fontWeight: '700' }]}>
+                          {formatDateDisplay(task.dueDate!)}
+                        </ThemedText>
+                      </View>
+                    )}
+                    {task.latitude != null && (
+                      <View style={[styles.metaTag, { backgroundColor: isDark ? '#2a1a2a' : '#fce4ec' }]}>
+                        <Ionicons name="location" size={12} color="#e91e63" />
+                        <ThemedText style={[styles.metaTagText, { color: '#e91e63' }]}>Pin</ThemedText>
+                      </View>
+                    )}
+                  </View>
+
+                  {/* Subtasks */}
+                  <View style={styles.popupSection}>
+                    <View style={styles.subtaskHeaderRow}>
+                      <ThemedText style={styles.popupSectionTitle}>Subtasks</ThemedText>
+                      {subtasks.length > 0 && (
+                        <View style={[styles.subtaskCountPill, { backgroundColor: chipBg }]}>
+                          <ThemedText style={styles.subtaskCountText}>
+                            {subtasks.filter((s) => s.completed).length}/{subtasks.length}
+                          </ThemedText>
+                        </View>
+                      )}
+                    </View>
+
+                    {subtasks.length > 0 && (
+                      <View style={[styles.subtaskProgressBar, { backgroundColor: chipBg }]}>
+                        <View
+                          style={[
+                            styles.subtaskProgressFill,
+                            { width: `${(subtasks.filter((s) => s.completed).length / subtasks.length) * 100}%` },
+                          ]}
+                        />
+                      </View>
+                    )}
+
+                    {subtasks.length === 0 && !showSubtaskInput && (
+                      <View style={styles.subtaskEmptyState}>
+                        <Ionicons name="list-outline" size={28} color={isDark ? '#444' : '#ccc'} />
+                        <ThemedText style={styles.subtaskEmptyText}>Break it down into steps</ThemedText>
+                      </View>
+                    )}
+
+                    {subtasks.map((subtask) => (
+                      <View key={subtask.id} style={[styles.subtaskItem, { backgroundColor: chipBg }]}>
+                        <TouchableOpacity
+                          style={styles.subtaskCheckArea}
+                          onPress={() => handleToggleSubtask(task.id, subtask.id, subtask.completed)}
+                        >
+                          <Ionicons
+                            name={subtask.completed ? 'checkbox' : 'square-outline'}
+                            size={18}
+                            color={subtask.completed ? '#4CAF50' : '#888'}
+                          />
+                          <ThemedText style={[styles.subtaskText, subtask.completed && styles.completedTaskText]}>
+                            {subtask.title}
+                          </ThemedText>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={() => handleDeleteSubtask(task.id, subtask.id)}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        >
+                          <Ionicons name="close" size={16} color="#888" />
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+
+                    {showSubtaskInput ? (
+                      <View style={[styles.addSubtaskInputRow, { borderColor: '#4CAF50' }]}>
+                        <TextInput
+                          ref={subtaskInputRef}
+                          style={[styles.subtaskInput, { color: textColor }]}
+                          placeholder="What needs to be done?"
+                          placeholderTextColor={placeholderColor}
+                          value={newSubtaskInput}
+                          onChangeText={setNewSubtaskInput}
+                          onSubmitEditing={() => handleAddSubtask(task.id)}
+                          onBlur={() => { if (!newSubtaskInput.trim()) { setShowSubtaskInput(false); } }}
+                          returnKeyType="done"
+                          autoFocus
+                          editable={!addingSubtask}
+                        />
+                        {addingSubtask ? (
+                          <ActivityIndicator size="small" color="#4CAF50" />
+                        ) : (
+                          <TouchableOpacity
+                            onPress={() => handleAddSubtask(task.id)}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                          >
+                            <Ionicons
+                              name="checkmark-circle"
+                              size={24}
+                              color={newSubtaskInput.trim() ? '#4CAF50' : '#ccc'}
+                            />
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    ) : (
+                      <TouchableOpacity
+                        style={styles.addSubtaskButton}
+                        onPress={() => setShowSubtaskInput(true)}
+                      >
+                        <Ionicons name="add" size={18} color="#4CAF50" />
+                        <ThemedText style={styles.addSubtaskButtonText}>Add subtask</ThemedText>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+
+                  {/* Action Buttons */}
+                  <View style={styles.popupActions}>
+                    {!isFriendTask && (
+                      <TouchableOpacity
+                        style={[styles.popupActionButton, { backgroundColor: 'rgba(76,175,80,0.1)' }]}
+                        onPress={() => {
+                          setPopupTaskId(null);
+                          handleOpenModal(task as Task);
+                        }}
+                      >
+                        <Ionicons name="create-outline" size={22} color="#4CAF50" />
+                        <ThemedText style={[styles.popupActionText, { color: '#4CAF50' }]}>Edit</ThemedText>
+                      </TouchableOpacity>
+                    )}
+
+                    {task.latitude != null && task.longitude != null && (
+                      <TouchableOpacity
+                        style={[styles.popupActionButton, { backgroundColor: 'rgba(0,122,255,0.1)' }]}
+                        onPress={() => {
+                          setPopupTaskId(null);
+                          router.navigate({
+                            pathname: '/(tabs)/explore',
+                            params: { taskLat: task.latitude, taskLng: task.longitude, taskTitle: task.title },
+                          });
+                        }}
+                      >
+                        <Ionicons name="map-outline" size={22} color="#007AFF" />
+                        <ThemedText style={[styles.popupActionText, { color: '#007AFF' }]}>View</ThemedText>
+                      </TouchableOpacity>
+                    )}
+
+                    {!isFriendTask && (
+                      <TouchableOpacity
+                        style={[styles.popupActionButton, { backgroundColor: 'rgba(255,107,107,0.1)' }]}
+                        onPress={() => {
+                          setPopupTaskId(null);
+                          handleDeleteTask(task.id);
+                        }}
+                      >
+                        <Ionicons name="trash-outline" size={22} color="#ff6b6b" />
+                        <ThemedText style={[styles.popupActionText, { color: '#ff6b6b' }]}>Delete</ThemedText>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </ScrollView>
+              </ThemedView>
+            );
+          })()}
+        </TouchableOpacity>
       </Modal>
 
       {/* Too Far Away Popup */}
@@ -1297,24 +1611,103 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
   },
-  editButton: {
-    padding: 8,
-  },
-  expandedContent: {
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-    marginTop: -4,
-    marginBottom: 10,
-    borderRadius: 10,
+  popupCard: {
+    width: '100%',
+    borderRadius: 20,
+    padding: 24,
     borderWidth: 1,
-    borderTopLeftRadius: 0,
-    borderTopRightRadius: 0,
-    gap: 10,
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
   },
-  subtaskTitle: {
+  popupHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    marginBottom: 12,
+  },
+  popupTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  popupDescription: {
+    fontSize: 13,
+    opacity: 0.6,
+    marginTop: 4,
+  },
+  popupMetaRow: {
+    flexDirection: 'row',
+    gap: 8,
+    flexWrap: 'wrap',
+    marginBottom: 16,
+  },
+  popupSection: {
+    marginBottom: 16,
+  },
+  popupSectionTitle: {
     fontWeight: '700',
     fontSize: 14,
-    marginBottom: 4,
+    marginBottom: 8,
+  },
+  popupActions: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  popupActionButton: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 14,
+    borderRadius: 12,
+  },
+  popupActionText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  popupCloseX: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    zIndex: 10,
+  },
+  subtaskHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  subtaskCountPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 12,
+  },
+  subtaskCountText: {
+    fontSize: 12,
+    fontWeight: '700',
+    opacity: 0.6,
+  },
+  subtaskProgressBar: {
+    height: 4,
+    borderRadius: 2,
+    marginBottom: 10,
+    overflow: 'hidden',
+  },
+  subtaskProgressFill: {
+    height: '100%',
+    backgroundColor: '#4CAF50',
+    borderRadius: 2,
+  },
+  subtaskEmptyState: {
+    alignItems: 'center',
+    paddingVertical: 16,
+    gap: 6,
+  },
+  subtaskEmptyText: {
+    fontSize: 13,
+    opacity: 0.4,
   },
   subtaskItem: {
     flexDirection: 'row',
@@ -1322,54 +1715,84 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 10,
     borderRadius: 8,
+    marginBottom: 4,
+  },
+  subtaskCheckArea: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 10,
   },
   subtaskText: {
     flex: 1,
     fontSize: 14,
   },
-  addSubtaskRow: {
+  addSubtaskInputRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderRadius: 10,
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingVertical: 10,
     gap: 10,
+    marginTop: 4,
   },
   subtaskInput: {
     flex: 1,
     fontSize: 14,
   },
-  viewOnMapButton: {
+  addSubtaskButton: {
     flexDirection: 'row',
-    backgroundColor: '#007AFF',
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderRadius: 10,
     alignItems: 'center',
-    justifyContent: 'center',
     gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 10,
+    marginTop: 4,
   },
-  viewOnMapButtonText: {
-    color: '#fff',
-    fontWeight: '700',
+  addSubtaskButtonText: {
     fontSize: 14,
+    fontWeight: '600',
+    color: '#4CAF50',
   },
-  deleteButton: {
+  gridContainer: {
     flexDirection: 'row',
-    backgroundColor: '#ff6b6b',
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
+    flexWrap: 'wrap',
     gap: 8,
+    paddingHorizontal: 4,
   },
-  deleteButtonText: {
-    color: '#fff',
-    fontWeight: '700',
-    fontSize: 14,
+  gridCard: {
+    width: (Dimensions.get('window').width - 64) / 3,
+    borderRadius: 10,
+    borderWidth: 1,
+    padding: 10,
+    minHeight: 110,
+    justifyContent: 'space-between',
+  },
+  gridCardTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  gridPriorityDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  gridCardTitle: {
+    fontSize: 12,
+    fontWeight: '600',
+    flex: 1,
+  },
+  gridCardDate: {
+    fontSize: 10,
+    opacity: 0.6,
+    marginTop: 4,
+  },
+  gridCardIcons: {
+    flexDirection: 'row',
+    gap: 6,
+    marginTop: 6,
   },
   fab: {
     position: 'absolute',
@@ -1585,5 +2008,45 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     fontSize: 16,
     opacity: 0.6,
+  },
+  taskViewToggle: {
+    flexDirection: 'row',
+    marginHorizontal: 16,
+    marginBottom: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  taskViewOption: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+  },
+  taskViewOptionActive: {
+    backgroundColor: '#4CAF50',
+  },
+  taskViewOptionText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#888',
+  },
+  taskViewOptionTextActive: {
+    color: '#fff',
+  },
+  friendTaskBadge: {
+    backgroundColor: 'rgba(255,255,255,0.3)',
+    borderRadius: 8,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    minWidth: 16,
+    alignItems: 'center',
+  },
+  friendTaskBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#fff',
   },
 });

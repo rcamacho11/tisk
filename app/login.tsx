@@ -271,7 +271,7 @@ export default function LoginScreen() {
 
   const handleResendCode = async () => {
     hideBanner();
-    setOtpDigits(Array(OTP_LENGTH).fill(''));
+    setOtpValue('');
     setIsSending(true);
     try {
       const result = await authService.sendResetCode(resetEmail);
