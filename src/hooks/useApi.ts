@@ -20,7 +20,7 @@ export function useApi<T>(
   })
 
   const fetchData = useCallback(async () => {
-    setState({ data: null, loading: true, error: null })
+    setState(prev => ({ ...prev, loading: true, error: null }))
     try {
       const response = await callback()
       setState({
@@ -29,13 +29,13 @@ export function useApi<T>(
         error: response.error,
       })
     } catch (err) {
-      setState({
-        data: null,
+      setState(prev => ({
+        data: prev.data,
         loading: false,
         error: {
           message: err instanceof Error ? err.message : 'An error occurred',
         },
-      })
+      }))
     }
   }, [callback])
 
