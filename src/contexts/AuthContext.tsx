@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react'
 import { authService } from '../services/authService'
+import { supabase } from '../../utils/supabase'
 import { Session, User } from '../types/api'
 
 interface AuthResult {
@@ -45,6 +46,40 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     }
     checkAuth()
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, supabaseSession) => {
+        if (event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN') {
+          if (supabaseSession) {
+            await AsyncStorage.setItem('supabase_access_token', supabaseSession.access_token)
+            setSession({
+              access_token: supabaseSession.access_token,
+              token_type: supabaseSession.token_type ?? 'Bearer',
+              expires_in: supabaseSession.expires_in ?? 0,
+              refresh_token: supabaseSession.refresh_token ?? '',
+              user: {
+                id: supabaseSession.user.id,
+                email: supabaseSession.user.email ?? '',
+                name: supabaseSession.user.user_metadata?.name ?? '',
+                created_at: supabaseSession.user.created_at ?? new Date().toISOString(),
+              },
+            } as Session)
+            setUser({
+              id: supabaseSession.user.id,
+              email: supabaseSession.user.email ?? '',
+              name: supabaseSession.user.user_metadata?.name ?? '',
+              created_at: supabaseSession.user.created_at ?? new Date().toISOString(),
+            })
+          }
+        } else if (event === 'SIGNED_OUT') {
+          setSession(null)
+          setUser(null)
+          await AsyncStorage.removeItem('supabase_access_token')
+        }
+      },
+    )
+
+    return () => subscription.unsubscribe()
   }, [])
 
   const signup = useCallback(async (email: string, password: string, name: string): Promise<AuthResult> => {
